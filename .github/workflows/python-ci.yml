@@ -1,0 +1,118 @@
+name: Python CI (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Version of Python to configure"
+        required: false
+        type: string
+        default: "3.12"
+      src-path:
+        description: "Path to Python source directory"
+        required: false
+        type: string
+        default: "src"
+      tests-path:
+        description: "Path to Python tests directory"
+        required: false
+        type: string
+        default: "tests"
+      cov-fail-under:
+        description: "Minimum test coverage percentage required to pass"
+        required: false
+        type: number
+        default: 90
+      run-tests:
+        description: "Whether to run pytest suite"
+        required: false
+        type: boolean
+        default: true
+      run-lint:
+        description: "Whether to run ruff linter"
+        required: false
+        type: boolean
+        default: true
+      run-type-check:
+        description: "Whether to run mypy type checker"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  test:
+    if: ${{ inputs.run-tests }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - name: Set up Python
+        run: uv python install ${{ inputs.python-version }}
+      - name: Check lockfile consistency
+        run: uv lock --check
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run tests
+        shell: bash
+        run: |
+          set -o pipefail
+          PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
+            --cov=${{ inputs.src-path }} \
+            --cov-report=term-missing \
+            --cov-fail-under=${{ inputs.cov-fail-under }} \
+            -v --tb=short 2>&1 | tee pytest-output.txt
+      - name: Coverage summary
+        if: always()
+        run: |
+          echo '## Test Coverage' >> $GITHUB_STEP_SUMMARY
+          grep -E "^(TOTAL|Name.*Stmts|-----|Required|=====)" pytest-output.txt | tail -20 >> $GITHUB_STEP_SUMMARY || true
+      - name: Coverage PR comment
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        uses: MishaKav/pytest-coverage-comment@v1.3.0
+        with:
+          pytest-coverage-path: ./pytest-output.txt
+          title: Test Coverage
+
+  lint:
+    if: ${{ inputs.run-lint }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Run linter and formatter
+        run: |
+          uvx ruff check ${{ inputs.src-path }} ${{ inputs.tests-path }}
+          uvx ruff format --check ${{ inputs.src-path }} ${{ inputs.tests-path }}
+
+  type-check:
+    if: ${{ inputs.run-type-check }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - name: Set up Python
+        run: uv python install ${{ inputs.python-version }}
+      - name: Check lockfile consistency
+        run: uv lock --check
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run type checker
+        run: uv run mypy ${{ inputs.src-path }} ${{ inputs.tests-path }}
