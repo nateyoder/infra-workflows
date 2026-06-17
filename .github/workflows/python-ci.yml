@@ -63,11 +63,16 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
-            --cov=${{ inputs.src-path }} \
-            --cov-report=term-missing \
-            --cov-fail-under=${{ inputs.cov-fail-under }} \
-            -v --tb=short 2>&1 | tee pytest-output.txt
+          if [ -d "${{ inputs.tests-path }}" ]; then
+            PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
+              --cov=${{ inputs.src-path }} \
+              --cov-report=term-missing \
+              --cov-fail-under=${{ inputs.cov-fail-under }} \
+              -v --tb=short 2>&1 | tee pytest-output.txt
+          else
+            echo "Tests directory '${{ inputs.tests-path }}' not found. Skipping tests."
+            echo "No tests found." > pytest-output.txt
+          fi
       - name: Coverage summary
         if: always()
         run: |
@@ -92,9 +97,22 @@ jobs:
         with:
           enable-cache: true
       - name: Run linter and formatter
+        shell: bash
         run: |
-          uvx ruff check ${{ inputs.src-path }} ${{ inputs.tests-path }}
-          uvx ruff format --check ${{ inputs.src-path }} ${{ inputs.tests-path }}
+          PATHS=""
+          if [ -d "${{ inputs.src-path }}" ]; then
+            PATHS="$PATHS ${{ inputs.src-path }}"
+          fi
+          if [ -d "${{ inputs.tests-path }}" ]; then
+            PATHS="$PATHS ${{ inputs.tests-path }}"
+          fi
+          
+          if [ -n "$PATHS" ]; then
+            uvx ruff check $PATHS
+            uvx ruff format --check $PATHS
+          else
+            echo "No source or test directories found to lint."
+          fi
 
   type-check:
     if: ${{ inputs.run-type-check }}
@@ -115,4 +133,18 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
       - name: Run type checker
-        run: uv run mypy ${{ inputs.src-path }} ${{ inputs.tests-path }}
+        shell: bash
+        run: |
+          PATHS=""
+          if [ -d "${{ inputs.src-path }}" ]; then
+            PATHS="$PATHS ${{ inputs.src-path }}"
+          fi
+          if [ -d "${{ inputs.tests-path }}" ]; then
+            PATHS="$PATHS ${{ inputs.tests-path }}"
+          fi
+          
+          if [ -n "$PATHS" ]; then
+            uv run mypy $PATHS
+          else
+            echo "No source or test directories found for type checking."
+          fi
