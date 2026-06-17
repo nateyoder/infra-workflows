@@ -99,11 +99,15 @@ jobs:
       - name: Run linter and formatter
         shell: bash
         run: |
+          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
+          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
+
           PATHS=""
           if [ -d "${{ inputs.src-path }}" ]; then
             PATHS="$PATHS ${{ inputs.src-path }}"
           fi
-          if [ -d "${{ inputs.tests-path }}" ]; then
+          # Only add tests-path if it is not already contained within src-path
+          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
             PATHS="$PATHS ${{ inputs.tests-path }}"
           fi
           
@@ -135,11 +139,15 @@ jobs:
       - name: Run type checker
         shell: bash
         run: |
+          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
+          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
+
           PATHS=""
           if [ -d "${{ inputs.src-path }}" ]; then
             PATHS="$PATHS ${{ inputs.src-path }}"
           fi
-          if [ -d "${{ inputs.tests-path }}" ]; then
+          # Only add tests-path if it is not already contained within src-path
+          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
             PATHS="$PATHS ${{ inputs.tests-path }}"
           fi
           
