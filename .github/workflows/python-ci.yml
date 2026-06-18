@@ -112,8 +112,8 @@ jobs:
           fi
           
           if [ -n "$PATHS" ]; then
-            uvx ruff check $PATHS
-            uvx ruff format --check $PATHS
+            uv run ruff check $PATHS
+            uv run ruff format --check $PATHS
           else
             echo "No source or test directories found to lint."
           fi

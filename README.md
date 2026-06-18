@@ -43,7 +43,7 @@ on:
 
 jobs:
   ci:
-    uses: nyoder/infra-workflows/.github/workflows/python-ci.yml@v1
+    uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
     permissions:
       contents: read
       pull-requests: write # Required for test coverage PR comments
@@ -66,7 +66,7 @@ on:
 
 jobs:
   ci:
-    uses: nyoder/infra-workflows/.github/workflows/python-ci.yml@v1
+    uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
     permissions:
       contents: read
       pull-requests: write
@@ -125,4 +125,4 @@ When you make changes to a workflow and want to publish a new release:
    git push origin v1 --force
    ```
 
-By following this process, any downstream project referencing `uses: nyoder/infra-workflows/...@v1` will immediately benefit from the new updates on their next workflow run.
+By following this process, any downstream project referencing `uses: nateyoder/infra-workflows/...@v1` will immediately benefit from the new updates on their next workflow run.
