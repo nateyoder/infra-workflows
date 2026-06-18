@@ -47,9 +47,9 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
@@ -80,7 +80,7 @@ jobs:
           grep -E "^(TOTAL|Name.*Stmts|-----|Required|=====)" pytest-output.txt | tail -20 >> $GITHUB_STEP_SUMMARY || true
       - name: Coverage PR comment
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: MishaKav/pytest-coverage-comment@v1.3.0
+        uses: MishaKav/pytest-coverage-comment@v1
         with:
           pytest-coverage-path: ./pytest-output.txt
           title: Test Coverage
@@ -91,9 +91,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
       - name: Run linter and formatter
@@ -124,9 +124,9 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v8
         with:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
