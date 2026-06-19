@@ -38,6 +38,34 @@ on:
         required: false
         type: boolean
         default: true
+      editable-path-deps:
+        description: >
+          Newline-separated list of private dependency repos to check out and
+          symlink before running CI. Required when the project uses editable
+          path dependencies that reference sibling repos not available to the
+          default GITHUB_TOKEN.
+
+          Format per line:
+            <github_repo_full_name>:<checkout_path>:<symlink_path>
+
+          - github_repo_full_name: e.g. nateyoder/perp-arb-ml
+          - checkout_path: where to clone the repo, relative to GITHUB_WORKSPACE
+          - symlink_path: the path uv expects, relative to GITHUB_WORKSPACE
+                          (e.g. "../perp-arb-ml" becomes a sibling of workspace)
+
+          Example:
+            nateyoder/perp-arb-ml:.ci/deps/perp-arb-ml:../perp-arb-ml
+            nateyoder/pmkt-clients:.ci/deps/pmkt_clients:../pmkt_clients
+        required: false
+        type: string
+        default: ""
+    secrets:
+      repo-read-token:
+        description: >
+          Personal access token (PAT) with read access to private dependency
+          repos. Required when editable-path-deps is non-empty. Do not use
+          GITHUB_TOKEN — it cannot read sibling private repos.
+        required: false
 
 jobs:
   test:
@@ -48,6 +76,62 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout private editable dependencies
+        if: ${{ inputs.editable-path-deps != '' }}
+        shell: bash
+        env:
+          REPO_READ_TOKEN: ${{ secrets.repo-read-token }}
+          EDITABLE_PATH_DEPS: ${{ inputs.editable-path-deps }}
+        run: |
+          set -euo pipefail
+
+          # Mask immediately so the token never appears in logs
+          echo "::add-mask::$REPO_READ_TOKEN"
+
+          if [ -z "$REPO_READ_TOKEN" ]; then
+            echo "::error::repo-read-token secret is required when editable-path-deps is set"
+            exit 1
+          fi
+
+          # Each non-empty line: <github_repo>:<checkout_path>:<symlink_path>
+          #   checkout_path – relative to GITHUB_WORKSPACE, where the repo is cloned
+          #   symlink_path  – relative to GITHUB_WORKSPACE, where uv expects the dep
+          #                   (e.g. "../foo" resolves as a sibling of the workspace dir)
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+
+            repo="$(echo "$line" | cut -d: -f1)"
+            checkout_path="$(echo "$line" | cut -d: -f2)"
+            link_path="$(echo "$line" | cut -d: -f3)"
+
+            if [ -z "$repo" ] || [ -z "$checkout_path" ] || [ -z "$link_path" ]; then
+              echo "::error::Invalid editable-path-deps line (expected repo:checkout_path:symlink_path): '$line'"
+              exit 1
+            fi
+
+            echo "Cloning $repo into $checkout_path"
+            mkdir -p "$(dirname "$checkout_path")"
+            # Clone via HTTPS with token — URL is constructed in env only, not echoed
+            git clone --depth 1 \
+              "https://x-access-token:${REPO_READ_TOKEN}@github.com/${repo}.git" \
+              "$checkout_path"
+
+            absolute_checkout="${GITHUB_WORKSPACE}/${checkout_path}"
+            absolute_link="${GITHUB_WORKSPACE}/${link_path}"
+            mkdir -p "$(dirname "$absolute_link")"
+
+            if [ -e "$absolute_link" ] || [ -L "$absolute_link" ]; then
+              existing="$(readlink "$absolute_link" || true)"
+              if [ "$existing" != "$absolute_checkout" ]; then
+                echo "::error::Path already exists and is not the expected symlink: $absolute_link -> $existing (expected -> $absolute_checkout)"
+                exit 1
+              fi
+              echo "Symlink already correct: $absolute_link -> $absolute_checkout"
+            else
+              ln -s "$absolute_checkout" "$absolute_link"
+              echo "Symlinked: $absolute_link -> $absolute_checkout"
+            fi
+          done <<< "$EDITABLE_PATH_DEPS"
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
@@ -92,6 +176,60 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout private editable dependencies
+        if: ${{ inputs.editable-path-deps != '' }}
+        shell: bash
+        env:
+          REPO_READ_TOKEN: ${{ secrets.repo-read-token }}
+          EDITABLE_PATH_DEPS: ${{ inputs.editable-path-deps }}
+        run: |
+          set -euo pipefail
+
+          echo "::add-mask::$REPO_READ_TOKEN"
+
+          if [ -z "$REPO_READ_TOKEN" ]; then
+            echo "::error::repo-read-token secret is required when editable-path-deps is set"
+            exit 1
+          fi
+
+          # Each non-empty line: <github_repo>:<checkout_path>:<symlink_path>
+          #   checkout_path – relative to GITHUB_WORKSPACE, where the repo is cloned
+          #   symlink_path  – relative to GITHUB_WORKSPACE, where uv expects the dep
+          #                   (e.g. "../foo" resolves as a sibling of the workspace dir)
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+
+            repo="$(echo "$line" | cut -d: -f1)"
+            checkout_path="$(echo "$line" | cut -d: -f2)"
+            link_path="$(echo "$line" | cut -d: -f3)"
+
+            if [ -z "$repo" ] || [ -z "$checkout_path" ] || [ -z "$link_path" ]; then
+              echo "::error::Invalid editable-path-deps line (expected repo:checkout_path:symlink_path): '$line'"
+              exit 1
+            fi
+
+            echo "Cloning $repo into $checkout_path"
+            mkdir -p "$(dirname "$checkout_path")"
+            git clone --depth 1 \
+              "https://x-access-token:${REPO_READ_TOKEN}@github.com/${repo}.git" \
+              "$checkout_path"
+
+            absolute_checkout="${GITHUB_WORKSPACE}/${checkout_path}"
+            absolute_link="${GITHUB_WORKSPACE}/${link_path}"
+            mkdir -p "$(dirname "$absolute_link")"
+
+            if [ -e "$absolute_link" ] || [ -L "$absolute_link" ]; then
+              existing="$(readlink "$absolute_link" || true)"
+              if [ "$existing" != "$absolute_checkout" ]; then
+                echo "::error::Path already exists and is not the expected symlink: $absolute_link -> $existing (expected -> $absolute_checkout)"
+                exit 1
+              fi
+              echo "Symlink already correct: $absolute_link -> $absolute_checkout"
+            else
+              ln -s "$absolute_checkout" "$absolute_link"
+              echo "Symlinked: $absolute_link -> $absolute_checkout"
+            fi
+          done <<< "$EDITABLE_PATH_DEPS"
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
@@ -110,7 +248,7 @@ jobs:
           if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
             PATHS="$PATHS ${{ inputs.tests-path }}"
           fi
-          
+
           if [ -n "$PATHS" ]; then
             uv run ruff check $PATHS
             uv run ruff format --check $PATHS
@@ -125,6 +263,60 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v7
+      - name: Checkout private editable dependencies
+        if: ${{ inputs.editable-path-deps != '' }}
+        shell: bash
+        env:
+          REPO_READ_TOKEN: ${{ secrets.repo-read-token }}
+          EDITABLE_PATH_DEPS: ${{ inputs.editable-path-deps }}
+        run: |
+          set -euo pipefail
+
+          echo "::add-mask::$REPO_READ_TOKEN"
+
+          if [ -z "$REPO_READ_TOKEN" ]; then
+            echo "::error::repo-read-token secret is required when editable-path-deps is set"
+            exit 1
+          fi
+
+          # Each non-empty line: <github_repo>:<checkout_path>:<symlink_path>
+          #   checkout_path – relative to GITHUB_WORKSPACE, where the repo is cloned
+          #   symlink_path  – relative to GITHUB_WORKSPACE, where uv expects the dep
+          #                   (e.g. "../foo" resolves as a sibling of the workspace dir)
+          while IFS= read -r line; do
+            [ -z "$line" ] && continue
+
+            repo="$(echo "$line" | cut -d: -f1)"
+            checkout_path="$(echo "$line" | cut -d: -f2)"
+            link_path="$(echo "$line" | cut -d: -f3)"
+
+            if [ -z "$repo" ] || [ -z "$checkout_path" ] || [ -z "$link_path" ]; then
+              echo "::error::Invalid editable-path-deps line (expected repo:checkout_path:symlink_path): '$line'"
+              exit 1
+            fi
+
+            echo "Cloning $repo into $checkout_path"
+            mkdir -p "$(dirname "$checkout_path")"
+            git clone --depth 1 \
+              "https://x-access-token:${REPO_READ_TOKEN}@github.com/${repo}.git" \
+              "$checkout_path"
+
+            absolute_checkout="${GITHUB_WORKSPACE}/${checkout_path}"
+            absolute_link="${GITHUB_WORKSPACE}/${link_path}"
+            mkdir -p "$(dirname "$absolute_link")"
+
+            if [ -e "$absolute_link" ] || [ -L "$absolute_link" ]; then
+              existing="$(readlink "$absolute_link" || true)"
+              if [ "$existing" != "$absolute_checkout" ]; then
+                echo "::error::Path already exists and is not the expected symlink: $absolute_link -> $existing (expected -> $absolute_checkout)"
+                exit 1
+              fi
+              echo "Symlink already correct: $absolute_link -> $absolute_checkout"
+            else
+              ln -s "$absolute_checkout" "$absolute_link"
+              echo "Symlinked: $absolute_link -> $absolute_checkout"
+            fi
+          done <<< "$EDITABLE_PATH_DEPS"
       - name: Install uv
         uses: astral-sh/setup-uv@v8.2.0
         with:
@@ -150,7 +342,7 @@ jobs:
           if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
             PATHS="$PATHS ${{ inputs.tests-path }}"
           fi
-          
+
           if [ -n "$PATHS" ]; then
             uv run mypy $PATHS
           else

@@ -12,10 +12,11 @@ A comprehensive, `uv`-powered continuous integration workflow for Python applica
 
 #### Features
 
-- **Fast Execution**: Uses `uv` ( Astral's extremely fast Python package and environment manager) with automatic caching of dependencies based on `uv.lock`.
+- **Fast Execution**: Uses `uv` (Astral's extremely fast Python package and environment manager) with automatic caching of dependencies based on `uv.lock`.
 - **Linting & Formatting**: Enforces code style using `ruff`.
 - **Static Analysis**: Enforces type annotations using `mypy`.
 - **Test Coverage**: Runs `pytest` and automatically publishes coverage summaries directly to the GitHub Action Summary and comments on Pull Requests.
+- **Private Editable Dependencies**: Optional support for checking out and symlinking private sibling repos before CI runs, enabling `uv` editable path dependencies across repos.
 
 #### Prerequisites
 
@@ -72,25 +73,69 @@ jobs:
       pull-requests: write
     with:
       python-version: "3.11"
-      src-path: "my_app" # Custom source directory
-      tests-path: "tests/unit" # Custom test directory
-      cov-fail-under: 80 # Require 80% coverage (default is 90%)
-      run-type-check: false # Skip mypy type-checking
+      src-path: "my_app"        # Custom source directory
+      tests-path: "tests/unit"  # Custom test directory
+      cov-fail-under: 80        # Require 80% coverage (default is 90%)
+      run-type-check: false     # Skip mypy type-checking
+```
+
+### Private Editable Dependencies
+
+If your project uses `uv` editable path dependencies that reference private sibling repos
+(e.g. `perp-arb-ml = { path = "../perp-arb-ml", editable = true }` in `pyproject.toml`),
+those paths do not exist on the GitHub Actions runner by default.
+
+Use `editable-path-deps` to specify repos to check out and symlink into place before CI runs.
+Each line has the format `<github_repo>:<checkout_path>:<symlink_path>`, where:
+- `checkout_path` — where the repo is cloned (relative to workspace)
+- `symlink_path` — the path `uv` expects, relative to workspace (e.g. `../perp-arb-ml`)
+
+You must also provide a `repo-read-token` secret — a PAT with read access to the private repos.
+Do **not** use `GITHUB_TOKEN`; it is scoped to the current repo and will 404 on sibling repos.
+
+```yaml
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
+    permissions:
+      contents: read
+      pull-requests: write
+    secrets:
+      repo-read-token: ${{ secrets.CI_REPO_READ_TOKEN }}
+    with:
+      editable-path-deps: |
+        nateyoder/perp-arb-ml:.ci/deps/perp-arb-ml:../perp-arb-ml
+        nateyoder/pmkt-clients:.ci/deps/pmkt_clients:../pmkt_clients
 ```
 
 ---
 
 ## Workflow Inputs
 
-| Input            | Description                                       | Type      | Default   | Required |
-| :--------------- | :------------------------------------------------ | :-------- | :-------- | :------- |
-| `python-version` | Version of Python to configure                    | `string`  | `"3.12"`  | No       |
-| `src-path`       | Path to Python source directory                   | `string`  | `"src"`   | No       |
-| `tests-path`     | Path to Python tests directory                    | `string`  | `"tests"` | No       |
-| `cov-fail-under` | Minimum test coverage percentage required to pass | `number`  | `90`      | No       |
-| `run-tests`      | Whether to run pytest suite                       | `boolean` | `true`    | No       |
-| `run-lint`       | Whether to run ruff linter                        | `boolean` | `true`    | No       |
-| `run-type-check` | Whether to run mypy type checker                  | `boolean` | `true`    | No       |
+| Input                 | Description                                                    | Type      | Default   | Required |
+| :-------------------- | :------------------------------------------------------------- | :-------- | :-------- | :------- |
+| `python-version`      | Version of Python to configure                                 | `string`  | `"3.12"`  | No       |
+| `src-path`            | Path to Python source directory                                | `string`  | `"src"`   | No       |
+| `tests-path`          | Path to Python tests directory                                 | `string`  | `"tests"` | No       |
+| `cov-fail-under`      | Minimum test coverage percentage required to pass              | `number`  | `90`      | No       |
+| `run-tests`           | Whether to run pytest suite                                    | `boolean` | `true`    | No       |
+| `run-lint`            | Whether to run ruff linter                                     | `boolean` | `true`    | No       |
+| `run-type-check`      | Whether to run mypy type checker                               | `boolean` | `true`    | No       |
+| `editable-path-deps`  | Newline-separated `repo:checkout_path:symlink_path` entries for private editable deps | `string` | `""` | No |
+
+## Workflow Secrets
+
+| Secret            | Description                                                                                      | Required                              |
+| :---------------- | :----------------------------------------------------------------------------------------------- | :------------------------------------ |
+| `repo-read-token` | PAT with read access to private dependency repos. Do not use `GITHUB_TOKEN` for cross-repo deps. | Yes, if `editable-path-deps` is set  |
 
 ---
 
