@@ -1,0 +1,95 @@
+name: Test - Checkout Editable Deps Action
+
+# Validates the checkout-editable-deps composite action across three scenarios:
+#   1. Fast-path: no-op when editable-path-deps is empty
+#   2. Happy path: clones a repo and creates the expected symlink
+#   3. Failure path: fails fast with a clear error when token is missing
+#
+# Uses the infra-workflows repo itself as the test clone target so no external
+# PAT is required — GITHUB_TOKEN has read access to the current repo.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/actions/checkout-editable-deps/**
+      - .github/workflows/test-checkout-editable-deps.yml
+
+jobs:
+  # ── 1. Fast-path ────────────────────────────────────────────────────────────
+  # When editable-path-deps is empty the action should exit immediately without
+  # doing anything, regardless of whether a token is provided.
+  test-fast-path:
+    name: "No-op when editable-path-deps is empty"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-editable-deps
+        with:
+          editable-path-deps: ""
+          repo-read-token: ""
+
+  # ── 2. Happy path ───────────────────────────────────────────────────────────
+  # Clones a real repo and verifies the symlink lands at the expected path.
+  # We use infra-workflows itself as the test dep so GITHUB_TOKEN is sufficient.
+  test-clone-and-symlink:
+    name: "Clones repo and creates symlink"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-editable-deps
+        with:
+          # Clone infra-workflows into .ci/deps/test-dep and symlink it to ../test-dep
+          # (simulating how a consumer would reference a sibling private repo)
+          editable-path-deps: "nateyoder/infra-workflows:.ci/deps/test-dep:../test-dep"
+          repo-read-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify clone and symlink
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          clone_path=".ci/deps/test-dep"
+          symlink_path="${GITHUB_WORKSPACE}/../test-dep"
+
+          if [ ! -d "$clone_path" ]; then
+            echo "::error::Expected clone at $clone_path but directory not found"
+            exit 1
+          fi
+          echo "✅ Clone exists at $clone_path"
+
+          if [ ! -L "$symlink_path" ]; then
+            echo "::error::Expected symlink at $symlink_path but not found"
+            exit 1
+          fi
+          echo "✅ Symlink exists at $symlink_path -> $(readlink "$symlink_path")"
+
+  # ── 3. Failure path ─────────────────────────────────────────────────────────
+  # When editable-path-deps is set but the token is empty the action must fail
+  # immediately with a clear error, before any clone is attempted.
+  test-missing-token-fails:
+    name: "Fails fast when token is missing"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/checkout-editable-deps
+        id: checkout-deps
+        continue-on-error: true
+        with:
+          editable-path-deps: "nateyoder/infra-workflows:.ci/deps/test-dep:../test-dep"
+          repo-read-token: ""
+      - name: Assert step failed
+        shell: bash
+        run: |
+          outcome="${{ steps.checkout-deps.outcome }}"
+          if [ "$outcome" != "failure" ]; then
+            echo "::error::Expected checkout-deps to fail with missing token, but outcome was: $outcome"
+            exit 1
+          fi
+          echo "✅ Action correctly failed with missing token (outcome=$outcome)"
