@@ -38,6 +38,22 @@ on:
         required: false
         type: boolean
         default: true
+      run-integration-tests:
+        description: >
+          Whether to run the opt-in integration test suite (selected by
+          integration-marker). Runs on a runner with Docker available, so
+          tests using testcontainers or service containers work. Off by default.
+        required: false
+        type: boolean
+        default: false
+      integration-marker:
+        description: >
+          pytest -m marker expression selecting the integration suite. Passed on
+          the command line, so it overrides any default deselection in the
+          project's pyproject addopts (e.g. -m "not integration").
+        required: false
+        type: string
+        default: "integration"
       editable-path-deps:
         description: >
           Newline-separated list of private dependency repos to check out and
@@ -196,3 +212,46 @@ jobs:
           else
             echo "No source or test directories found for type checking."
           fi
+
+  integration-test:
+    if: ${{ inputs.run-integration-tests }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
+        with:
+          editable-path-deps: ${{ inputs.editable-path-deps }}
+          repo-read-token: ${{ secrets.repo-read-token }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+      - name: Set up Python
+        run: uv python install ${{ inputs.python-version }}
+      - name: Check lockfile consistency
+        run: uv lock --check
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Run integration tests
+        shell: bash
+        run: |
+          set -o pipefail
+          if [ ! -d "${{ inputs.tests-path }}" ]; then
+            echo "Tests directory '${{ inputs.tests-path }}' not found. Skipping."
+            exit 0
+          fi
+          set +e
+          PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
+            -m "${{ inputs.integration-marker }}" \
+            -v --tb=short
+          status=$?
+          set -e
+          # pytest exit code 5 = no tests collected (marker matched nothing) → OK.
+          if [ "$status" -eq 5 ]; then
+            echo "No tests matched marker '${{ inputs.integration-marker }}'."
+            exit 0
+          fi
+          exit "$status"
