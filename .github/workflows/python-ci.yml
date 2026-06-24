@@ -91,22 +91,11 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
         with:
+          python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
           repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/uv.lock"
-      - name: Set up Python
-        run: uv python install ${{ inputs.python-version }}
-      - name: Check lockfile consistency
-        run: uv lock --check
-      - name: Install dependencies
-        run: uv sync --frozen
       - name: Run tests
         shell: bash
         run: |
@@ -176,22 +165,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
         with:
+          python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
           repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/uv.lock"
-      - name: Set up Python
-        run: uv python install ${{ inputs.python-version }}
-      - name: Check lockfile consistency
-        run: uv lock --check
-      - name: Install dependencies
-        run: uv sync --frozen
       - name: Run type checker
         shell: bash
         run: |
@@ -219,39 +197,31 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v7
-      - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
         with:
+          python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
           repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/uv.lock"
-      - name: Set up Python
-        run: uv python install ${{ inputs.python-version }}
-      - name: Check lockfile consistency
-        run: uv lock --check
-      - name: Install dependencies
-        run: uv sync --frozen
       - name: Run integration tests
         shell: bash
+        env:
+          SRC_PATH: ${{ inputs.src-path }}
+          TESTS_PATH: ${{ inputs.tests-path }}
+          INTEGRATION_MARKER: ${{ inputs.integration-marker }}
         run: |
-          set -o pipefail
-          if [ ! -d "${{ inputs.tests-path }}" ]; then
-            echo "Tests directory '${{ inputs.tests-path }}' not found. Skipping."
+          if [ ! -d "$TESTS_PATH" ]; then
+            echo "Tests directory '$TESTS_PATH' not found. Skipping."
             exit 0
           fi
           set +e
-          PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
-            -m "${{ inputs.integration-marker }}" \
+          PYTHONPATH="$SRC_PATH" uv run pytest "$TESTS_PATH" \
+            -m "$INTEGRATION_MARKER" \
             -v --tb=short
           status=$?
           set -e
           # pytest exit code 5 = no tests collected (marker matched nothing) → OK.
           if [ "$status" -eq 5 ]; then
-            echo "No tests matched marker '${{ inputs.integration-marker }}'."
+            echo "No tests matched marker '$INTEGRATION_MARKER'."
             exit 0
           fi
           exit "$status"
