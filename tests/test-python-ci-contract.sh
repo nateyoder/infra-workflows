@@ -26,6 +26,17 @@ require_default() {
   }
 }
 
+require_count() {
+  local expected=$1
+  local text=$2
+  local count
+  count=$(grep -F -c -- "$text" "$workflow" || true)
+  [ "$count" -eq "$expected" ] || {
+    echo "expected $expected occurrences of: $text (found $count)" >&2
+    exit 1
+  }
+}
+
 forbid() {
   if grep -F -- "$1" "$workflow" >/dev/null; then
     echo "forbidden workflow behavior: $1" >&2
@@ -56,7 +67,7 @@ require 'if [ "${{ inputs.test-workers }}" -gt 0 ]'
 require '--dist=worksteal'
 
 # Tests-only projects must still be linted and type checked.
-require 'if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] ||'
+require_count 2 'if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] ||'
 
 # A shared workflow should not need write permission or a third-party PR bot.
 forbid 'pull-requests: write'
