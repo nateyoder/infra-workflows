@@ -25,14 +25,15 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v7
-    - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
+    - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+    - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@a326b975a3ea40c809ad1d9e46b2cab584445491 # infra-workflows#3
       with:
         editable-path-deps: ${{ inputs.editable-path-deps }}
         repo-read-token: ${{ inputs.repo-read-token }}
     - name: Install uv
-      uses: astral-sh/setup-uv@v8.2.0
+      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
       with:
+        version: "0.11.28"
         enable-cache: true
         cache-dependency-glob: "**/uv.lock"
     - name: Set up Python
