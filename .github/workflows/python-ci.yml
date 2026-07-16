@@ -40,6 +40,11 @@ on:
         required: false
         type: string
         default: ""
+      test-timeout-minutes:
+        description: "Maximum minutes for the consolidated quality gate"
+        required: false
+        type: number
+        default: 15
       run-tests:
         description: "Whether to run pytest suite"
         required: false
@@ -104,10 +109,11 @@ jobs:
   test:
     if: ${{ inputs.run-tests || inputs.run-lint || inputs.run-type-check }}
     runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.test-timeout-minutes }}
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@789efce74cd52d896c6ab4c64214b737283c29d9 # pinned runtime
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
@@ -192,7 +198,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@789efce74cd52d896c6ab4c64214b737283c29d9 # pinned runtime
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}

@@ -73,6 +73,7 @@ jobs:
       coverage: false           # Run tests without coverage, e.g. on drafts
       test-workers: 2           # Opt into pytest-xdist work-stealing
       pytest-args: "--durations=25"
+      test-timeout-minutes: 15  # Bound a stalled consolidated quality gate
       run-type-check: false     # Skip mypy type-checking
 ```
 
@@ -123,6 +124,7 @@ jobs:
 | `coverage`            | Whether tests enforce and report coverage                      | `boolean` | `true`    | No       |
 | `test-workers`        | pytest-xdist workers; `0` keeps serial pytest                  | `number`  | `0`       | No       |
 | `pytest-args`         | Extra space-separated pytest arguments                         | `string`  | `""`     | No       |
+| `test-timeout-minutes`| Maximum minutes for the consolidated quality gate               | `number`  | `15`      | No       |
 | `run-tests`           | Whether to run pytest suite                                    | `boolean` | `true`    | No       |
 | `run-lint`            | Whether to run ruff linter                                     | `boolean` | `true`    | No       |
 | `run-type-check`      | Whether to run mypy type checker                               | `boolean` | `true`    | No       |
