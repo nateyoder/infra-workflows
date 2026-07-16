@@ -122,7 +122,7 @@ jobs:
           if [ -d "${{ inputs.src-path }}" ]; then
             paths+=("${{ inputs.src-path }}")
           fi
-          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
+          if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] || [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; }; then
             paths+=("${{ inputs.tests-path }}")
           fi
           if [ "${#paths[@]}" -gt 0 ]; then
@@ -141,7 +141,7 @@ jobs:
           if [ -d "${{ inputs.src-path }}" ]; then
             paths+=("${{ inputs.src-path }}")
           fi
-          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
+          if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] || [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; }; then
             paths+=("${{ inputs.tests-path }}")
           fi
           if [ "${#paths[@]}" -gt 0 ]; then
@@ -171,6 +171,9 @@ jobs:
             if [ -n "$PYTEST_ARGS" ]; then
               read -r -a extra_args <<< "$PYTEST_ARGS"
               args+=("${extra_args[@]}")
+            fi
+            if [ "${{ inputs.coverage }}" != "true" ]; then
+              args+=(--no-cov)
             fi
             PYTHONPATH=${{ inputs.src-path }} uv run pytest "${args[@]}" 2>&1 | tee pytest-output.txt
           else
