@@ -23,7 +23,7 @@ A comprehensive, `uv`-powered continuous integration workflow for Python applica
 For a downstream repository to use this workflow, its codebase must contain:
 
 1. `uv.lock` and a `pyproject.toml` file at the root.
-2. `pytest`, `pytest-cov`, `ruff`, and `mypy` declared as dependencies (typically in development/dependency groups synced by `uv sync`). Add `pytest-xdist` when setting `test-workers` above `0`.
+2. `pytest`, `pytest-cov`, `ruff`, and `mypy` declared as dependencies (typically in development/dependency groups synced by `uv sync`). Add `pytest-xdist>=3.2.0` when setting `test-workers` above `0`.
 
 ---
 

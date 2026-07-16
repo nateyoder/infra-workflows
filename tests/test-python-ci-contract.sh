@@ -65,6 +65,10 @@ require 'args+=(--no-cov)'
 # Workers are opt-in, so projects without pytest-xdist retain serial pytest.
 require 'if [ "${{ inputs.test-workers }}" -gt 0 ]'
 require '--dist=worksteal'
+grep -F -- 'pytest-xdist>=3.2.0' README.md >/dev/null || {
+  echo 'missing pytest-xdist worksteal requirement' >&2
+  exit 1
+}
 
 # Tests-only projects must still be linted and type checked.
 require_count 2 'if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] ||'
