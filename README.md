@@ -23,7 +23,7 @@ A comprehensive, `uv`-powered continuous integration workflow for Python applica
 For a downstream repository to use this workflow, its codebase must contain:
 
 1. `uv.lock` and a `pyproject.toml` file at the root.
-2. `pytest`, `pytest-cov`, `ruff`, and `mypy` declared as dependencies (typically in development/dependency groups synced by `uv sync`).
+2. `pytest`, `pytest-cov`, `ruff`, and `mypy` declared as dependencies (typically in development/dependency groups synced by `uv sync`). Add `pytest-xdist` when setting `test-workers` above `0`.
 
 ---
 
@@ -37,8 +37,6 @@ To use a reusable workflow, create a workflow file (e.g., `.github/workflows/ci.
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -59,8 +57,6 @@ You can customize the directories, coverage threshold, parallelism, or disable s
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -98,8 +94,6 @@ Do **not** use `GITHUB_TOKEN`; it is scoped to the current repo and will 404 on 
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 

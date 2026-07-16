@@ -12,10 +12,10 @@ require() {
 }
 
 forbid() {
-  grep -F -- "$1" "$workflow" >/dev/null && {
+  if grep -F -- "$1" "$workflow" >/dev/null; then
     echo "forbidden workflow behavior: $1" >&2
     exit 1
-  }
+  fi
 }
 
 # Defaults preserve the existing full-quality gate for callers that do not
