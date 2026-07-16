@@ -23,6 +23,23 @@ on:
         required: false
         type: number
         default: 90
+      coverage:
+        description: "Whether tests enforce and report coverage"
+        required: false
+        type: boolean
+        default: true
+      test-workers:
+        description: "Number of pytest-xdist workers; 0 keeps serial pytest"
+        required: false
+        type: number
+        default: 0
+      pytest-args:
+        description: >
+          Space-separated extra pytest arguments. Values containing whitespace
+          are not supported.
+        required: false
+        type: string
+        default: ""
       run-tests:
         description: "Whether to run pytest suite"
         required: false
@@ -85,111 +102,86 @@ on:
 
 jobs:
   test:
-    if: ${{ inputs.run-tests }}
+    if: ${{ inputs.run-tests || inputs.run-lint || inputs.run-type-check }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
           repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Run tests
+      - name: Run linter and formatter
+        if: ${{ inputs.run-lint }}
         shell: bash
+        run: |
+          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
+          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
+          paths=()
+          if [ -d "${{ inputs.src-path }}" ]; then
+            paths+=("${{ inputs.src-path }}")
+          fi
+          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
+            paths+=("${{ inputs.tests-path }}")
+          fi
+          if [ "${#paths[@]}" -gt 0 ]; then
+            uv run ruff check "${paths[@]}"
+            uv run ruff format --check "${paths[@]}"
+          else
+            echo "No source or test directories found to lint."
+          fi
+      - name: Run type checker
+        if: ${{ inputs.run-type-check }}
+        shell: bash
+        run: |
+          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
+          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
+          paths=()
+          if [ -d "${{ inputs.src-path }}" ]; then
+            paths+=("${{ inputs.src-path }}")
+          fi
+          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
+            paths+=("${{ inputs.tests-path }}")
+          fi
+          if [ "${#paths[@]}" -gt 0 ]; then
+            uv run mypy "${paths[@]}"
+          else
+            echo "No source or test directories found for type checking."
+          fi
+      - name: Run tests
+        if: ${{ inputs.run-tests }}
+        shell: bash
+        env:
+          PYTEST_ARGS: ${{ inputs.pytest-args }}
         run: |
           set -o pipefail
           if [ -d "${{ inputs.tests-path }}" ]; then
-            PYTHONPATH=${{ inputs.src-path }} uv run pytest ${{ inputs.tests-path }} \
-              --cov=${{ inputs.src-path }} \
-              --cov-report=term-missing \
-              --cov-fail-under=${{ inputs.cov-fail-under }} \
-              -v --tb=short 2>&1 | tee pytest-output.txt
+            args=("${{ inputs.tests-path }}" -v --tb=short)
+            if [ "${{ inputs.coverage }}" = "true" ]; then
+              args+=(
+                "--cov=${{ inputs.src-path }}"
+                --cov-report=term-missing
+                "--cov-fail-under=${{ inputs.cov-fail-under }}"
+              )
+            fi
+            if [ "${{ inputs.test-workers }}" -gt 0 ]; then
+              args+=(-n "${{ inputs.test-workers }}" --dist=worksteal)
+            fi
+            if [ -n "$PYTEST_ARGS" ]; then
+              read -r -a extra_args <<< "$PYTEST_ARGS"
+              args+=("${extra_args[@]}")
+            fi
+            PYTHONPATH=${{ inputs.src-path }} uv run pytest "${args[@]}" 2>&1 | tee pytest-output.txt
           else
             echo "Tests directory '${{ inputs.tests-path }}' not found. Skipping tests."
             echo "No tests found." > pytest-output.txt
           fi
       - name: Coverage summary
-        if: always()
+        if: ${{ always() && inputs.run-tests && inputs.coverage }}
         run: |
           echo '## Test Coverage' >> $GITHUB_STEP_SUMMARY
           grep -E "^(TOTAL|Name.*Stmts|-----|Required|=====)" pytest-output.txt | tail -20 >> $GITHUB_STEP_SUMMARY || true
-      - name: Coverage PR comment
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-        uses: MishaKav/pytest-coverage-comment@v1
-        with:
-          pytest-coverage-path: ./pytest-output.txt
-          title: Test Coverage
-
-  lint:
-    if: ${{ inputs.run-lint }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-      - uses: nateyoder/infra-workflows/.github/actions/checkout-editable-deps@v1
-        with:
-          editable-path-deps: ${{ inputs.editable-path-deps }}
-          repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Install uv
-        uses: astral-sh/setup-uv@v8.2.0
-        with:
-          enable-cache: true
-      - name: Run linter and formatter
-        shell: bash
-        run: |
-          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
-          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
-
-          PATHS=""
-          if [ -d "${{ inputs.src-path }}" ]; then
-            PATHS="$PATHS ${{ inputs.src-path }}"
-          fi
-          # Only add tests-path if it is not already contained within src-path
-          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
-            PATHS="$PATHS ${{ inputs.tests-path }}"
-          fi
-
-          if [ -n "$PATHS" ]; then
-            uv run ruff check $PATHS
-            uv run ruff format --check $PATHS
-          else
-            echo "No source or test directories found to lint."
-          fi
-
-  type-check:
-    if: ${{ inputs.run-type-check }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@v1
-        with:
-          python-version: ${{ inputs.python-version }}
-          editable-path-deps: ${{ inputs.editable-path-deps }}
-          repo-read-token: ${{ secrets.repo-read-token }}
-      - name: Run type checker
-        shell: bash
-        run: |
-          src_real=$(realpath "${{ inputs.src-path }}" 2>/dev/null || true)
-          tests_real=$(realpath "${{ inputs.tests-path }}" 2>/dev/null || true)
-
-          PATHS=""
-          if [ -d "${{ inputs.src-path }}" ]; then
-            PATHS="$PATHS ${{ inputs.src-path }}"
-          fi
-          # Only add tests-path if it is not already contained within src-path
-          if [ -d "${{ inputs.tests-path }}" ] && [[ "$tests_real" != "$src_real"/* && "$tests_real" != "$src_real" ]]; then
-            PATHS="$PATHS ${{ inputs.tests-path }}"
-          fi
-
-          if [ -n "$PATHS" ]; then
-            uv run mypy $PATHS
-          else
-            echo "No source or test directories found for type checking."
-          fi
 
   integration-test:
     if: ${{ inputs.run-integration-tests }}

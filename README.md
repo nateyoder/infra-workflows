@@ -15,7 +15,7 @@ A comprehensive, `uv`-powered continuous integration workflow for Python applica
 - **Fast Execution**: Uses `uv` (Astral's extremely fast Python package and environment manager) with automatic caching of dependencies based on `uv.lock`.
 - **Linting & Formatting**: Enforces code style using `ruff`.
 - **Static Analysis**: Enforces type annotations using `mypy`.
-- **Test Coverage**: Runs `pytest` and automatically publishes coverage summaries directly to the GitHub Action Summary and comments on Pull Requests.
+- **Test Coverage**: Runs `pytest` with an optional coverage gate and publishes its summary to the GitHub Action Summary.
 - **Private Editable Dependencies**: Optional support for checking out and symlinking private sibling repos before CI runs, enabling `uv` editable path dependencies across repos.
 
 #### Prerequisites
@@ -47,14 +47,13 @@ jobs:
     uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
     permissions:
       contents: read
-      pull-requests: write # Required for test coverage PR comments
     with:
       python-version: "3.12"
 ```
 
 ### Advanced Example with Custom Parameters
 
-You can customize the directories, coverage threshold, or disable specific checks:
+You can customize the directories, coverage threshold, parallelism, or disable specific checks:
 
 ```yaml
 name: CI
@@ -70,12 +69,14 @@ jobs:
     uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
     permissions:
       contents: read
-      pull-requests: write
     with:
       python-version: "3.11"
       src-path: "my_app"        # Custom source directory
       tests-path: "tests/unit"  # Custom test directory
       cov-fail-under: 80        # Require 80% coverage (default is 90%)
+      coverage: false           # Run tests without coverage, e.g. on drafts
+      test-workers: 2           # Opt into pytest-xdist work-stealing
+      pytest-args: "--durations=25"
       run-type-check: false     # Skip mypy type-checking
 ```
 
@@ -107,7 +108,6 @@ jobs:
     uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
     permissions:
       contents: read
-      pull-requests: write
     secrets:
       repo-read-token: ${{ secrets.CI_REPO_READ_TOKEN }}
     with:
@@ -126,6 +126,9 @@ jobs:
 | `src-path`            | Path to Python source directory                                | `string`  | `"src"`   | No       |
 | `tests-path`          | Path to Python tests directory                                 | `string`  | `"tests"` | No       |
 | `cov-fail-under`      | Minimum test coverage percentage required to pass              | `number`  | `90`      | No       |
+| `coverage`            | Whether tests enforce and report coverage                      | `boolean` | `true`    | No       |
+| `test-workers`        | pytest-xdist workers; `0` keeps serial pytest                  | `number`  | `0`       | No       |
+| `pytest-args`         | Extra space-separated pytest arguments                         | `string`  | `""`     | No       |
 | `run-tests`           | Whether to run pytest suite                                    | `boolean` | `true`    | No       |
 | `run-lint`            | Whether to run ruff linter                                     | `boolean` | `true`    | No       |
 | `run-type-check`      | Whether to run mypy type checker                               | `boolean` | `true`    | No       |
