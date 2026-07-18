@@ -86,11 +86,14 @@ require_count 2 'if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] ||
 
 # The reusable execution chain is immutable and uses the declared uv version.
 forbid '@v1'
-require_count 2 'nateyoder/infra-workflows/.github/actions/setup-python-env@789efce74cd52d896c6ab4c64214b737283c29d9'
+require_count 2 'nateyoder/infra-workflows/.github/actions/setup-python-env@0076db537cd191196315883c8838891e94cf587b'
 require_file .github/actions/setup-python-env/action.yml 'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7'
 require_file .github/actions/setup-python-env/action.yml 'nateyoder/infra-workflows/.github/actions/checkout-editable-deps@a326b975a3ea40c809ad1d9e46b2cab584445491'
 require_file .github/actions/setup-python-env/action.yml 'astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0'
 require_file .github/actions/setup-python-env/action.yml 'version: "0.11.28"'
+require_file .github/actions/setup-python-env/action.yml 'REPO_READ_TOKEN: ${{ inputs.repo-read-token }}'
+require_file .github/actions/setup-python-env/action.yml 'run: "$GITHUB_ACTION_PATH/install-dependencies.sh"'
+require_count 2 'repo-read-token: ${{ secrets.repo-read-token }}'
 
 # A shared workflow should not need write permission or a third-party PR bot.
 forbid 'pull-requests: write'

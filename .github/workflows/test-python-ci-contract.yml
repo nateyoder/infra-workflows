@@ -12,3 +12,4 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
       - run: bash tests/test-python-ci-contract.sh
+      - run: bash tests/test-private-git-auth.sh

@@ -17,6 +17,7 @@ A comprehensive, `uv`-powered continuous integration workflow for Python applica
 - **Static Analysis**: Enforces type annotations using `mypy`.
 - **Test Coverage**: Runs `pytest` with an optional coverage gate and publishes its summary to the GitHub Action Summary.
 - **Private Editable Dependencies**: Optional support for checking out and symlinking private sibling repos before CI runs, enabling `uv` editable path dependencies across repos.
+- **Immutable Private Git Dependencies**: Authenticates commit-pinned `git+https://github.com` dependencies without putting credentials in project files, lockfiles, or caches.
 
 #### Prerequisites
 
@@ -111,6 +112,32 @@ jobs:
         nateyoder/pmkt-clients:.ci/deps/pmkt_clients:../pmkt_clients
 ```
 
+### Immutable Private Git Dependencies
+
+Projects can retain a full-commit PEP 508 pin to a private GitHub repository:
+
+```toml
+[project]
+dependencies = [
+  "pmkt-clients @ git+https://github.com/nateyoder/pmkt-clients@bd1872bbde4197f80817061dfd43e3655dcfaa2c",
+]
+```
+
+Forward `repo-read-token` without changing the dependency URL or `uv.lock`:
+
+```yaml
+jobs:
+  ci:
+    uses: nateyoder/infra-workflows/.github/workflows/python-ci.yml@v1
+    secrets:
+      repo-read-token: ${{ secrets.CI_REPO_READ_TOKEN }}
+```
+
+The workflow makes the token available to Git only while `uv lock --check` and
+`uv sync --frozen` run, then removes the temporary credential helper. The token
+must be a read-only PAT or GitHub App token with access to every referenced
+private repository. `GITHUB_TOKEN` cannot read sibling private repositories.
+
 ---
 
 ## Workflow Inputs
@@ -134,7 +161,7 @@ jobs:
 
 | Secret            | Description                                                                                      | Required                              |
 | :---------------- | :----------------------------------------------------------------------------------------------- | :------------------------------------ |
-| `repo-read-token` | PAT with read access to private dependency repos. Do not use `GITHUB_TOKEN` for cross-repo deps. | Yes, if `editable-path-deps` is set  |
+| `repo-read-token` | Read-only PAT or GitHub App token for private dependency repos. Do not use `GITHUB_TOKEN` for cross-repo deps. | Yes, for `editable-path-deps` or immutable private Git dependencies |
 
 ---
 

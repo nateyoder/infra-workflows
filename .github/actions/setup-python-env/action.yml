@@ -1,8 +1,9 @@
 name: Set up Python environment
 description: >
   Shared prologue for the Python CI jobs: checkout, private editable-dep
-  checkout, uv install (cached), Python install, lockfile check, and a frozen
-  sync. Collapses the previously duplicated per-job setup into one definition.
+  checkout, uv install (cached), Python install, authenticated lockfile check,
+  and a frozen sync. Collapses the previously duplicated per-job setup into one
+  definition.
 
 inputs:
   python-version:
@@ -18,7 +19,8 @@ inputs:
   repo-read-token:
     description: >
       PAT with read access to private dependency repos. Required when
-      editable-path-deps is non-empty.
+      editable-path-deps is non-empty or the project has immutable private
+      git+https://github.com dependencies.
     required: false
     default: ""
 
@@ -39,19 +41,9 @@ runs:
     - name: Set up Python
       shell: bash
       run: uv python install "${{ inputs.python-version }}"
-    - name: Check lockfile consistency
+    - name: Check lockfile and install dependencies
       shell: bash
       env:
         EDITABLE_PATH_DEPS: ${{ inputs.editable-path-deps }}
-      run: |
-        if uv lock --check; then
-          exit 0
-        fi
-        echo "::error title=uv.lock is out of date::The committed uv.lock does not match what uv resolves here. Run 'uv lock' and commit the result."
-        if [ -n "$EDITABLE_PATH_DEPS" ]; then
-          echo "::notice title=editable path deps::This project has editable path dependencies. The lock may have been generated locally against a path-dep checkout that differs from the ref CI clones (its origin/main). Regenerate the lock against origin/main and commit it, or keep your local sibling checkouts in sync with origin/main."
-        fi
-        exit 1
-    - name: Install dependencies
-      shell: bash
-      run: uv sync --frozen
+        REPO_READ_TOKEN: ${{ inputs.repo-read-token }}
+      run: "$GITHUB_ACTION_PATH/install-dependencies.sh"
