@@ -36,14 +36,22 @@ set -euo pipefail
 
 [ "$GIT_TERMINAL_PROMPT" = 0 ]
 [ -x "$GIT_ASKPASS" ]
-[ "$("$GIT_ASKPASS" 'Username for https://github.com')" = x-access-token ]
-[ "$("$GIT_ASKPASS" 'Password for https://github.com')" = "$EXPECTED_TOKEN" ]
-if "$GIT_ASKPASS" 'Password for https://gitlab.com'; then
-  echo 'credential helper answered for a non-GitHub host' >&2
-  exit 1
-fi
+[ "$("$GIT_ASKPASS" "Username for 'https://github.com': ")" = x-access-token ]
+[ "$("$GIT_ASKPASS" "Password for 'https://github.com': ")" = "$EXPECTED_TOKEN" ]
+[ "$("$GIT_ASKPASS" "Password for 'https://x-access-token@github.com': ")" = "$EXPECTED_TOKEN" ]
+for prompt in \
+  "Password for 'https://gitlab.com': " \
+  "Password for 'https://github.com.evil.example': " \
+  "Password for 'https://x-access-token@github.com.evil.example': " \
+  "Password for 'https://evilgithub.com': "; do
+  if "$GIT_ASKPASS" "$prompt"; then
+    echo "credential helper answered unsafe prompt: $prompt" >&2
+    exit 1
+  fi
+done
 printf '%s\n' "$GIT_ASKPASS" >"$ASKPASS_RECORD"
 printf '%s\n' "$*" >>"$UV_CALLS"
+printf 'streamed uv output: %s\n' "$*"
 EOF
 chmod +x "$consumer/bin/uv"
 
@@ -62,6 +70,8 @@ success_output="$consumer/success-output.log"
 
 printf 'lock --check\nsync --frozen\n' >"$consumer/expected-uv-calls"
 diff -u "$consumer/expected-uv-calls" "$consumer/uv-calls"
+[ "$(grep -F -c 'streamed uv output: lock --check' "$success_output")" -eq 1 ]
+[ "$(grep -F -c 'streamed uv output: sync --frozen' "$success_output")" -eq 1 ]
 askpass_path=$(cat "$consumer/askpass-record")
 [ ! -e "$askpass_path" ] || {
   echo "temporary credential helper was not removed" >&2
@@ -98,6 +108,38 @@ grep -F 'Private Git dependency authentication required' "$missing_output" >/dev
 grep -F 'Pass repo-read-token with read access' "$missing_output" >/dev/null
 if grep -F 'uv.lock is out of date' "$missing_output" >/dev/null; then
   echo "authentication failure was misreported as a stale lockfile" >&2
+  exit 1
+fi
+
+consumer=$(new_consumer transitive-missing-token)
+cat >"$consumer/pyproject.toml" <<'EOF'
+[project]
+name = "transitive-private-git-consumer"
+version = "0.1.0"
+dependencies = ["parent-package"]
+EOF
+cat >"$consumer/bin/uv" <<'EOF'
+#!/usr/bin/env bash
+echo 'fatal: unable to access a private dependency: The requested URL returned error: 403' >&2
+exit 1
+EOF
+chmod +x "$consumer/bin/uv"
+
+transitive_output="$consumer/transitive-output.log"
+if (
+  cd "$consumer"
+  PATH="$consumer/bin:$PATH" \
+    REPO_READ_TOKEN='' \
+    EDITABLE_PATH_DEPS='' \
+    RUNNER_TEMP="$consumer/runner-temp" \
+    "$install_script"
+) >"$transitive_output" 2>&1; then
+  echo "lockfile-only private dependency unexpectedly succeeded" >&2
+  exit 1
+fi
+grep -F 'Private Git dependency authentication required' "$transitive_output" >/dev/null
+if grep -F 'uv.lock is out of date' "$transitive_output" >/dev/null; then
+  echo "lockfile-only authentication failure was misreported as a stale lockfile" >&2
   exit 1
 fi
 

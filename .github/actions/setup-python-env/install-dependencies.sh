@@ -8,12 +8,12 @@ auth_failure=false
 
 cleanup() {
   rm -rf "$auth_dir"
-  unset GIT_ASKPASS GIT_TERMINAL_PROMPT
 }
 trap cleanup EXIT
 
 has_github_git_dependency() {
-  grep -Eqs 'git\+https://github\.com/' pyproject.toml uv.lock 2>/dev/null
+  grep -Eqs 'git\+https://github\.com/' pyproject.toml 2>/dev/null ||
+    grep -Eqs 'git[[:space:]]*=[[:space:]]*"https://github\.com/' uv.lock 2>/dev/null
 }
 
 report_auth_failure() {
@@ -22,7 +22,7 @@ report_auth_failure() {
   fi
 
   if ! grep -Eqi \
-    'Authentication failed|could not read Username|Invalid username or token|Repository not found|terminal prompts disabled|HTTP (401|403)' \
+    'Authentication failed|could not read Username|Invalid username or token|Repository not found|terminal prompts disabled|returned error: (401|403)' \
     "$uv_output"; then
     return 1
   fi
@@ -35,19 +35,25 @@ report_auth_failure() {
 }
 
 run_uv() {
-  local status=0
-  "$@" >"$uv_output" 2>&1 || status=$?
+  local -a pipeline_status
+  local uv_status tee_status
 
-  if [ "$status" -eq 0 ]; then
-    cat "$uv_output"
-    return 0
+  set +e
+  "$@" 2>&1 | tee "$uv_output"
+  pipeline_status=("${PIPESTATUS[@]}")
+  set -e
+
+  uv_status=${pipeline_status[0]}
+  tee_status=${pipeline_status[1]}
+
+  if [ "$uv_status" -ne 0 ]; then
+    if report_auth_failure; then
+      auth_failure=true
+    fi
+    return "$uv_status"
   fi
 
-  cat "$uv_output"
-  if report_auth_failure; then
-    auth_failure=true
-  fi
-  return "$status"
+  return "$tee_status"
 }
 
 export GIT_TERMINAL_PROMPT=0
@@ -57,8 +63,10 @@ if [ -n "${REPO_READ_TOKEN:-}" ]; then
   cat >"$askpass" <<'EOF'
 #!/usr/bin/env bash
 case "${1:-}" in
-  *Username*github.com*) printf '%s\n' 'x-access-token' ;;
-  *Password*github.com*) printf '%s\n' "$REPO_READ_TOKEN" ;;
+  "Username for 'https://github.com'"*) printf '%s\n' 'x-access-token' ;;
+  "Password for 'https://github.com'"* | "Password for 'https://x-access-token@github.com'"*)
+    printf '%s\n' "$REPO_READ_TOKEN"
+    ;;
   *) exit 1 ;;
 esac
 EOF
