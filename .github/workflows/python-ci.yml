@@ -114,7 +114,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@f1b4682171b1c6d8dec6f14b15b5a0e6bfcbae6a # infra-workflows#5
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@0076db537cd191196315883c8838891e94cf587b # infra-workflows#5
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
@@ -199,7 +199,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@f1b4682171b1c6d8dec6f14b15b5a0e6bfcbae6a # infra-workflows#5
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@0076db537cd191196315883c8838891e94cf587b # infra-workflows#5
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
