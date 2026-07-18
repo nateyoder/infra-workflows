@@ -101,8 +101,9 @@ on:
       repo-read-token:
         description: >
           Personal access token (PAT) with read access to private dependency
-          repos. Required when editable-path-deps is non-empty. Do not use
-          GITHUB_TOKEN — it cannot read sibling private repos.
+          repos. Required when editable-path-deps is non-empty or pyproject.toml
+          contains an immutable private git+https://github.com dependency. Do
+          not use GITHUB_TOKEN — it cannot read sibling private repos.
         required: false
 
 jobs:
@@ -113,7 +114,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@789efce74cd52d896c6ab4c64214b737283c29d9 # pinned runtime
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@f1b4682171b1c6d8dec6f14b15b5a0e6bfcbae6a # infra-workflows#5
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
@@ -198,7 +199,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@789efce74cd52d896c6ab4c64214b737283c29d9 # pinned runtime
+      - uses: nateyoder/infra-workflows/.github/actions/setup-python-env@f1b4682171b1c6d8dec6f14b15b5a0e6bfcbae6a # infra-workflows#5
         with:
           python-version: ${{ inputs.python-version }}
           editable-path-deps: ${{ inputs.editable-path-deps }}
