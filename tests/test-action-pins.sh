@@ -72,6 +72,24 @@ fi
 grep -F 'external action is not pinned by full 40-character SHA' \
   "$fixture_root/short-sha.log" >/dev/null
 
+git clone -q --shared "$repo_root" "$fixture_root/unavailable-self-pin"
+perl -pi -e \
+  's|(metric-cardinality@)[0-9a-f]{40}|${1}0000000000000000000000000000000000000000|' \
+  "$fixture_root/unavailable-self-pin/.github/workflows/metric-cardinality.yml"
+if (
+  cd "$fixture_root/unavailable-self-pin"
+  python3 .github/scripts/verify-action-pins.py
+) >"$fixture_root/unavailable-self-pin.log" 2>&1; then
+  echo "action pin verifier accepted an unavailable self-pin" >&2
+  exit 1
+fi
+grep -F 'unable to verify self-pin' "$fixture_root/unavailable-self-pin.log" >/dev/null
+if grep -F 'self-pin content mismatch' \
+  "$fixture_root/unavailable-self-pin.log" >/dev/null; then
+  echo "unavailable self-pin was misreported as a content mismatch" >&2
+  exit 1
+fi
+
 git init -q --bare "$fixture_root/origin.git"
 feature_head=$(git -C "$repo_root" rev-parse HEAD)
 base_head=$(git -C "$repo_root" rev-parse origin/main)
