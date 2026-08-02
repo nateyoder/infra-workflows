@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 
 
+CLI_DIMENSION = re.compile(r"[Dd]imensions(?:[\s=\\]*[\"']?)Name=[^,\s]+,Value=\S")
+
 PATTERNS = (
     (re.compile(r"put_metric_data|PutMetricData"), "publishes a metric directly"),
     (
@@ -23,6 +25,22 @@ PATTERNS = (
     ),
     (re.compile(r"_ALARM_BOUND"), "adds a published metric name"),
     (re.compile(r"aws_cloudwatch_metric_alarm|MetricName\s*="), "adds a metric or alarm"),
+    # AWS CLI. The hyphenated subcommands cannot collide with the boto3 spellings above.
+    # These fire on the subcommand alone, like put_metric_data does, rather than only when
+    # --dimensions is present: a dimensionless publish still mints one billed series, and
+    # shelling out must not be a softer path to a metric than the SDK.
+    (
+        re.compile(r"put-metric-data|put-metric-alarm"),
+        "publishes a metric or alarm with the AWS CLI",
+    ),
+    # `--dimensions Name=StationId,Value=$ID` shorthand, which carries the cardinality and is
+    # often a continuation line away from its subcommand. The JSON form of the same flag is
+    # already covered by DIMENSION_NAME/DIMENSION_VALUE.
+    #
+    # Anchored on the flag rather than matching `Name=,Value=` alone: that shorthand is not
+    # unique to CloudWatch, and unanchored it fires on `cloudformation deploy
+    # --parameter-overrides Name=Stack,Value=foo` and on Prometheus label strings.
+    (CLI_DIMENSION, "adds an AWS CLI metric dimension"),
 )
 DIMENSION_NAME = re.compile(r'["\']Name["\']\s*:')
 DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')
@@ -116,6 +134,28 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
                     break
 
             if not DIMENSION_NAME.search(line):
+                candidate = "\n".join(
+                    added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
+                )
+                if (
+                    "dimensions" in line.lower()
+                    and not CLI_DIMENSION.search(line)
+                    and CLI_DIMENSION.search(candidate)
+                ):
+                    if active_publication is None:
+                        next_block += 1
+                        cli_block = next_block
+                    else:
+                        cli_block = active_publication
+                    found.append(
+                        (
+                            path,
+                            lineno,
+                            "adds an AWS CLI metric dimension",
+                            line.strip()[:120],
+                            cli_block,
+                        )
+                    )
                 continue
             candidate = "\n".join(
                 added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
@@ -159,7 +199,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
 
 def main() -> int:
     base = os.environ.get("BASE_REF", "main")
-    paths = os.environ.get("SCAN_PATHS", "*.py *.yml *.yaml *.tf *.json").split()
+    paths = os.environ.get("SCAN_PATHS", "*.py *.yml *.yaml *.tf *.json *.sh").split()
     base_ref = resolve_base(base)
     merge_base = git("merge-base", base_ref, "HEAD", check=False).stdout.strip() or base_ref
     diff = git("diff", "--unified=0", merge_base, "HEAD", "--", *paths).stdout
