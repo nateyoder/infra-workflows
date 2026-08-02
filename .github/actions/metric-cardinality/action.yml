@@ -18,4 +18,4 @@ runs:
       env:
         SCAN_PATHS: ${{ inputs.paths }}
         BASE_REF: ${{ inputs.base-ref }}
-      run: python3 "$GITHUB_ACTION_PATH/../../scripts/check-metric-cardinality.py"
+      run: python3 "$GITHUB_ACTION_PATH/check-metric-cardinality.py"

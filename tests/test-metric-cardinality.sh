@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-guard="$repo_root/.github/scripts/check-metric-cardinality.py"
+guard="$repo_root/.github/actions/metric-cardinality/check-metric-cardinality.py"
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/metric-cardinality-test.XXXXXX")
 trap 'rm -rf "$fixture_root"' EXIT
 
