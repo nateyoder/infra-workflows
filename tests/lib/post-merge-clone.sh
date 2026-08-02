@@ -15,47 +15,7 @@
 #     GitHub, which serves them on request but never fetches them into a clone by default;
 #   * the clone is `--single-branch --branch main`, which is what `actions/checkout` produces.
 #
-# Sourced by tests; sets `post_merge_source` and `post_merge_clone`.
-
-build_post_merge_source_with_isolated_pin() {
-  local repo_root=$1
-  local scratch=$2
-
-  # A real pin may already be reachable from main when its PR was merge-committed. Give the
-  # current action content a parentless commit so the fixture always exercises recovery of a pin
-  # that exists only under refs/pull/*, regardless of the repository's merge strategy.
-  post_merge_source="$scratch/post-merge-source"
-  git clone -q --shared "$repo_root" "$post_merge_source"
-
-  # Carry the caller's working tree into the source clone so this remains a pre-commit test. Write
-  # snapshot objects into the temporary clone rather than the caller's object database.
-  local feature_tree isolated_pin repo_objects snapshot_index
-  repo_objects=$(git -C "$repo_root" rev-parse --path-format=absolute --git-path objects)
-  snapshot_index="$scratch/post-merge-source.index"
-  feature_tree=$(
-    GIT_INDEX_FILE="$snapshot_index" \
-      GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
-      GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
-      git -C "$repo_root" read-tree HEAD \
-      && GIT_INDEX_FILE="$snapshot_index" \
-        GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
-        GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
-        git -C "$repo_root" add -A \
-      && GIT_INDEX_FILE="$snapshot_index" \
-        GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
-        GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
-        git -C "$repo_root" write-tree
-  )
-  git -C "$post_merge_source" read-tree --reset -u "$feature_tree"
-
-  isolated_pin=$(
-    git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false \
-      -C "$post_merge_source" commit-tree "$feature_tree" \
-      -m 'synthetic unreachable self-pin'
-  )
-  perl -pi -e "s|(metric-cardinality@)[0-9a-f]{40}|\${1}$isolated_pin|" \
-    "$post_merge_source/.github/workflows/metric-cardinality.yml"
-}
+# Sourced by tests; sets `post_merge_clone` to the resulting checkout.
 
 build_post_merge_clone() {
   local repo_root=$1
@@ -64,7 +24,7 @@ build_post_merge_clone() {
 
   git init -q --bare "$origin"
 
-  local base_head feature_tree
+  local base_head feature_tree source_head
   # `origin/main` is what CI has; fall back to the merge base for a local run without it.
   base_head=$(git -C "$repo_root" rev-parse --verify --quiet origin/main) \
     || base_head=$(git -C "$repo_root" merge-base HEAD main 2>/dev/null) \
@@ -84,6 +44,37 @@ build_post_merge_clone() {
   GIT_INDEX_FILE="$scratch/snapshot.index" git -C "$repo_root" \
     pack-objects --quiet --stdout --revs <<<"$feature_tree" \
     | git --git-dir="$origin" unpack-objects -q 2>/dev/null || true
+
+  # A real pin may already be reachable from main when its PR was merge-committed. Give the
+  # current action content a parentless commit, publish it only under refs/pull/*, and rewrite the
+  # synthetic squash tree to use it. This exercises pin recovery regardless of merge strategy
+  # without changing the caller's repository or its real origin.
+  local isolated_pin metric_blob metric_mode
+  local metric_workflow=.github/workflows/metric-cardinality.yml
+  if ! git --git-dir="$origin" show "$feature_tree:$metric_workflow" \
+    >"$scratch/metric-cardinality.yml" 2>/dev/null \
+    || ! grep -qE 'metric-cardinality@[0-9a-f]{40}' "$scratch/metric-cardinality.yml"; then
+    echo "fixture cannot isolate a self-pin: no metric-cardinality pin found" >&2
+    return 1
+  fi
+  isolated_pin=$(
+    git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false \
+      --git-dir="$origin" commit-tree "$feature_tree" \
+      -m 'synthetic unreachable self-pin'
+  )
+  git --git-dir="$origin" update-ref refs/pull/sim/pin-0 "$isolated_pin"
+  perl -pi -e "s|(metric-cardinality@)[0-9a-f]{40}|\${1}$isolated_pin|" \
+    "$scratch/metric-cardinality.yml"
+  metric_blob=$(git --git-dir="$origin" hash-object -w "$scratch/metric-cardinality.yml")
+  metric_mode=$(
+    git --git-dir="$origin" ls-tree "$feature_tree" -- "$metric_workflow" | awk '{print $1}'
+  )
+  GIT_INDEX_FILE="$scratch/rewrite.index" git --git-dir="$origin" read-tree "$feature_tree"
+  GIT_INDEX_FILE="$scratch/rewrite.index" git --git-dir="$origin" update-index \
+    --cacheinfo "$metric_mode" "$metric_blob" "$metric_workflow"
+  feature_tree=$(
+    GIT_INDEX_FILE="$scratch/rewrite.index" git --git-dir="$origin" write-tree
+  )
 
   # Publish every self-pin under refs/pull/*, reachable from no branch -- exactly how a merged
   # PR's commits remain fetchable on GitHub. Fetch any the local checkout is missing first,
@@ -113,4 +104,13 @@ build_post_merge_clone() {
 
   git clone -q --single-branch --branch main "file://$origin" "$scratch/checkout"
   post_merge_clone="$scratch/checkout"
+
+  # A PR checkout is detached at a synthetic merge commit. Its branch history must not survive
+  # into the squash-shaped clone, or the harness cannot catch branch-only commits.
+  source_head=$(git -C "$repo_root" rev-parse HEAD)
+  if [ "$source_head" != "$base_head" ] \
+    && git -C "$post_merge_clone" merge-base --is-ancestor "$source_head" HEAD 2>/dev/null; then
+    echo "post-merge fixture unexpectedly retains the feature branch history" >&2
+    return 1
+  fi
 }
