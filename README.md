@@ -28,6 +28,50 @@ For a downstream repository to use this workflow, its codebase must contain:
 
 ---
 
+### 📊 Metric Cardinality Guard (`metric-cardinality.yml`)
+
+Fails a pull request that adds CloudWatch metric cardinality without acknowledging the cost.
+
+#### Why
+
+CloudWatch bills **$0.30/month per distinct (namespace, metric name, dimension-value)
+combination**. A dimension whose cardinality tracks a fleet multiplies the bill by the fleet
+size, and nothing in code review makes that visible — an added dimension key looks like any
+other dict entry. In July 2026 this cost the recorder fleet **~$2,179/month across 7,264
+series, of which 30 were alarmed on** (`nateyoder/pmkt-clients#523`). The worst offender was a
+deploy SHA used as a dimension, which re-minted every series on every release.
+
+#### What it does
+
+Scans **added** diff lines for the shapes that create billed series — `put_metric_data`, a
+non-empty `Dimensions` list, a `{"Name": ..., "Value": ...}` dimension entry, a new published
+metric name — and fails with an explanation of the cost model.
+
+It cannot know whether a metric is worth its cost. It only forces someone to say so in writing.
+To acknowledge, put a marker on the detected line or within three committed lines of it:
+
+```python
+# metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
+```
+
+If a value is only read while debugging, prefer a log line: Logs Insights queries it for
+$0.005/GB scanned and can group by fields far too high-cardinality to be a dimension.
+
+#### Usage
+
+```yaml
+jobs:
+  metric-cardinality:
+    uses: nateyoder/infra-workflows/.github/workflows/metric-cardinality.yml@v1
+    permissions:
+      contents: read
+```
+
+Optional inputs: `paths` (default `*.py *.yml *.yaml *.tf *.json`) and `base-ref` (defaults to
+the PR base branch).
+
+---
+
 ## Integration Guide
 
 To use a reusable workflow, create a workflow file (e.g., `.github/workflows/ci.yml`) in your repository and call this workflow using `jobs.<job_id>.uses`.

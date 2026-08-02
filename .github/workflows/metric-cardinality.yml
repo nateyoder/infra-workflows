@@ -1,0 +1,44 @@
+name: Metric Cardinality Guard (Reusable)
+
+# Fails a pull request that adds CloudWatch metric cardinality without acknowledging the cost.
+#
+# CloudWatch bills $0.30/month per distinct (namespace, metric name, dimension-value)
+# combination. A dimension whose cardinality tracks a fleet therefore multiplies the bill by the
+# fleet size, and nothing in a code review makes that visible: one added dimension key looks
+# identical to any other dict entry. In July 2026 this cost the recorder fleet ~$2,179/month
+# across 7,264 series, of which 30 were alarmed on.
+#
+# The guard is deliberately dumb and local: it scans ADDED diff lines for the shapes that create
+# billed series, and passes when the detected addition has a nearby explicit acknowledgement. It
+# cannot know whether a metric is worth its cost -- it only forces someone to say so in writing.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Space-separated pathspecs to scan"
+        required: false
+        type: string
+        default: "*.py *.yml *.yaml *.tf *.json"
+      base-ref:
+        description: "Base ref to diff against; defaults to the PR base branch"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  metric-cardinality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Check added metric cardinality
+        uses: nateyoder/infra-workflows/.github/actions/metric-cardinality@15fa16aaaf4effa2b9db001adece83ec1d57ed18
+        with:
+          paths: ${{ inputs.paths }}
+          base-ref: ${{ inputs.base-ref || github.event.pull_request.base.ref || 'main' }}

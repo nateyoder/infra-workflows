@@ -1,0 +1,21 @@
+name: Check metric cardinality
+description: Fail when added diff lines introduce unacknowledged CloudWatch metric cardinality
+
+inputs:
+  paths:
+    description: "Space-separated pathspecs to scan"
+    required: false
+    default: "*.py *.yml *.yaml *.tf *.json"
+  base-ref:
+    description: "Base ref to diff against"
+    required: false
+    default: main
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SCAN_PATHS: ${{ inputs.paths }}
+        BASE_REF: ${{ inputs.base-ref }}
+      run: python3 "$GITHUB_ACTION_PATH/check-metric-cardinality.py"
