@@ -52,7 +52,7 @@ CASES = [
     ("aws cli put-metric-alarm", "detector", METRIC_SUITE, SCANNER,
      'r"put-metric-data|put-metric-alarm"', 'r"put-metric-data"'),
     ("aws cli dimension shorthand", "detector", METRIC_SUITE, SCANNER,
-     r'r"[Dd]imensions.*Name=[^,\s]+,Value=\S"', 'r"(?!x)x"'),
+     r'r"[Dd]imensions(?:[\s=\\]*[\"\']?)Name=[^,\s]+,Value=\S"', 'r"(?!x)x"'),
 
     # Scanner behaviour that is not a detector alternative.
     ("dimension Name half", "scanner", METRIC_SUITE, SCANNER,
@@ -61,6 +61,9 @@ CASES = [
     ("dimension Value half", "scanner", METRIC_SUITE, SCANNER,
      r"""DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')""",
      'DIMENSION_VALUE = re.compile(r"(?!x)x")'),
+    ("split aws cli dimension continuation", "scanner", METRIC_SUITE, SCANNER,
+     '"dimensions" in line.lower()\n                    and not CLI_DIMENSION.search(line)',
+     'False\n                    and not CLI_DIMENSION.search(line)'),
     ("acknowledgement is honoured", "scanner", METRIC_SUITE, SCANNER,
      'ACK = re.compile(r"metric-budget:\\s*\\S", re.IGNORECASE)', 'ACK = re.compile(r"(?!x)x")'),
     ("acknowledgement is local", "scanner", METRIC_SUITE, SCANNER,

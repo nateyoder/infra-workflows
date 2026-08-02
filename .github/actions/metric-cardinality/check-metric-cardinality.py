@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 
 
+CLI_DIMENSION = re.compile(r"[Dd]imensions(?:[\s=\\]*[\"']?)Name=[^,\s]+,Value=\S")
+
 PATTERNS = (
     (re.compile(r"put_metric_data|PutMetricData"), "publishes a metric directly"),
     (
@@ -38,7 +40,7 @@ PATTERNS = (
     # Anchored on the flag rather than matching `Name=,Value=` alone: that shorthand is not
     # unique to CloudWatch, and unanchored it fires on `cloudformation deploy
     # --parameter-overrides Name=Stack,Value=foo` and on Prometheus label strings.
-    (re.compile(r"[Dd]imensions.*Name=[^,\s]+,Value=\S"), "adds an AWS CLI metric dimension"),
+    (CLI_DIMENSION, "adds an AWS CLI metric dimension"),
 )
 DIMENSION_NAME = re.compile(r'["\']Name["\']\s*:')
 DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')
@@ -97,6 +99,17 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
 
         for index, (lineno, line) in enumerate(hunk_added):
             if not DIMENSION_NAME.search(line):
+                candidate = "\n".join(
+                    added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
+                )
+                if (
+                    "dimensions" in line.lower()
+                    and not CLI_DIMENSION.search(line)
+                    and CLI_DIMENSION.search(candidate)
+                ):
+                    findings.append(
+                        (path, lineno, "adds an AWS CLI metric dimension", line.strip()[:120])
+                    )
                 continue
             candidate = "\n".join(
                 added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]

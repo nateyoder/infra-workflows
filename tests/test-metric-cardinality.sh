@@ -250,6 +250,25 @@ grep -F 'provision.sh:6  adds an AWS CLI metric dimension' "$repo/guard-output" 
   exit 1
 }
 
+# Adding only the flag and shorthand value to an existing multiline command must still bind
+# across the continuation. The command line is diff context here, so no other CLI detector can
+# make this fixture pass accidentally.
+repo=$(new_repo aws-cli-split-dimension-addition)
+cat >"$repo/provision.sh" <<'SHELL'
+#!/usr/bin/env bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "madis-ldm-per-station"
+SHELL
+start_change "$repo"
+cat >"$repo/provision.sh" <<'SHELL'
+#!/usr/bin/env bash
+aws cloudwatch put-metric-alarm \
+  --alarm-name "madis-ldm-per-station" \
+  --dimensions \
+    Name=StationId,Value="${STATION_ID}"
+SHELL
+expect_fail "$repo" 'provision.sh:4  adds an AWS CLI metric dimension' '*.sh'
+
 # Shell files must be scanned without the caller naming them, so this one runs on the
 # scanner's own default paths rather than an explicit SCAN_PATHS.
 repo=$(new_repo shell-scanned-by-default)
