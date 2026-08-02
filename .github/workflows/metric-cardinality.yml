@@ -1,0 +1,133 @@
+name: Metric Cardinality Guard (Reusable)
+
+# Fails a pull request that adds CloudWatch metric cardinality without acknowledging the cost.
+#
+# CloudWatch bills $0.30/month per distinct (namespace, metric name, dimension-value)
+# combination. A dimension whose cardinality tracks a fleet therefore multiplies the bill by the
+# fleet size, and nothing in a code review makes that visible: one added dimension key looks
+# identical to any other dict entry. In July 2026 this cost the recorder fleet ~$2,179/month
+# across 7,264 series, of which 30 were alarmed on.
+#
+# The guard is deliberately dumb and local: it greps ADDED diff lines for the shapes that create
+# billed series, and passes when the same hunk carries an explicit acknowledgement. It cannot
+# know whether a metric is worth its cost -- it only forces someone to say so in writing.
+
+on:
+  workflow_call:
+    inputs:
+      paths:
+        description: "Space-separated pathspecs to scan"
+        required: false
+        type: string
+        default: "*.py *.yml *.yaml *.tf *.json"
+      base-ref:
+        description: "Base ref to diff against; defaults to the PR base branch"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  metric-cardinality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check added metric cardinality
+        env:
+          SCAN_PATHS: ${{ inputs.paths }}
+          BASE_REF: ${{ inputs.base-ref || github.event.pull_request.base.ref || 'main' }}
+        run: |
+          python3 - <<'PYTHON'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          base = os.environ["BASE_REF"]
+          paths = os.environ["SCAN_PATHS"].split()
+
+          subprocess.run(["git", "fetch", "--quiet", "origin", base], check=False)
+          merge_base = subprocess.run(
+              ["git", "merge-base", f"origin/{base}", "HEAD"],
+              capture_output=True, text=True,
+          ).stdout.strip() or f"origin/{base}"
+          diff = subprocess.run(
+              ["git", "diff", "--unified=0", merge_base, "HEAD", "--", *paths],
+              capture_output=True, text=True, check=True,
+          ).stdout
+
+          # Shapes that create a new billed series. Each is a dimension being attached to a
+          # metric, or a metric being published at all.
+          PATTERNS = (
+              (re.compile(r"put_metric_data|PutMetricData"), "publishes a metric directly"),
+              (re.compile(r'["\']Dimensions["\']\s*:\s*\[\s*[^\]\s]'), "adds a non-empty Dimensions list"),
+              (re.compile(r'\{\s*["\']Name["\']\s*:.*["\']Value["\']\s*:'), "adds a metric dimension entry"),
+              (re.compile(r"_PER_STREAM_METRICS|_PER_SERVICE_METRICS"), "adds a per-producer metric tier"),
+              (re.compile(r"_ALARM_BOUND"), "adds a published metric name"),
+              (re.compile(r"aws_cloudwatch_metric_alarm|MetricName\s*="), "adds a metric or alarm"),
+          )
+          # Written on the added line, or anywhere in its hunk.
+          ACK = re.compile(r"metric-budget:\s*\S", re.IGNORECASE)
+
+          findings = []
+          path = None
+          hunk = []
+          hunk_added = []
+
+          def flush():
+              if not hunk_added:
+                  return
+              body = "\n".join(hunk)
+              if ACK.search(body):
+                  return
+              for lineno, line in hunk_added:
+                  for pattern, reason in PATTERNS:
+                      if pattern.search(line):
+                          findings.append((path, lineno, reason, line.strip()[:120]))
+                          break
+
+          lineno = 0
+          for raw in diff.splitlines():
+              if raw.startswith("+++ b/"):
+                  flush(); hunk, hunk_added = [], []
+                  path = raw[6:]
+              elif raw.startswith("@@"):
+                  flush(); hunk, hunk_added = [], []
+                  match = re.search(r"\+(\d+)", raw)
+                  lineno = int(match.group(1)) if match else 0
+              elif raw.startswith("+") and not raw.startswith("+++"):
+                  hunk.append(raw)
+                  hunk_added.append((lineno, raw[1:]))
+                  lineno += 1
+              elif not raw.startswith("-"):
+                  hunk.append(raw)
+          flush()
+
+          if not findings:
+              print("No new CloudWatch metric cardinality.")
+              sys.exit(0)
+
+          print("This change adds CloudWatch metric cardinality:\n")
+          for path, lineno, reason, snippet in findings:
+              print(f"  {path}:{lineno}  {reason}")
+              print(f"      {snippet}")
+          print(
+              "\nCloudWatch bills $0.30/month per distinct (namespace, metric name,"
+              "\ndimension-value) combination. A dimension that scales with the fleet"
+              "\nmultiplies that by the fleet size -- 74 producers makes one metric $22/month."
+              "\n"
+              "\nBefore adding one, check that an alarm will actually bind to it. If the value is"
+              "\nonly read while debugging, put it on a log line instead: Logs Insights queries it"
+              "\nfor $0.005/GB scanned and can group by any field, including ones too"
+              "\nhigh-cardinality to ever be a dimension."
+              "\n"
+              "\nIf the cost is intended, say so in the same hunk:"
+              "\n    # metric-budget: 1 fleet series, paged on by <alarm name>"
+          )
+          sys.exit(1)
+          PYTHON
