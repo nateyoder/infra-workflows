@@ -9,6 +9,14 @@ stops working* is -- and only running it can tell you which you have.
 
 Each case edits one guard and requires the named suite to fail. A case that survives means the
 suite cannot see that branch of that guard.
+
+Two structural checks run before any of that, because the table's own gaps are what kept
+reproducing:
+
+* every guard script under `.github/` must be named by some case, so a new guard cannot arrive
+  with no coverage and nothing complaining;
+* every detector alternative must be disabled by exactly one case, established by running the
+  mutation and seeing which alternative disappears rather than by counting rows.
 """
 
 from __future__ import annotations
@@ -19,6 +27,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 
@@ -26,11 +35,18 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
 METRIC_WORKFLOW = ".github/workflows/metric-cardinality.yml"
 PINS = ".github/scripts/verify-action-pins.py"
+INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
+INSTALL_SUITE = "tests/test-private-git-auth.sh"
+
+# Guards live here; every script under it must be covered. Found rather than declared, so the
+# list cannot silently fall behind the repository.
+GUARD_ROOT = ".github"
+GUARD_SUFFIXES = (".py", ".sh")
 
 # (label, kind, suite, file, old, new). `kind` is "detector" for one alternative of a
-# metric-cardinality detector; those are counted against the scanner below.
+# metric-cardinality detector; those are matched against the scanner's alternatives below.
 CASES = [
     ("put_metric_data", "detector", METRIC_SUITE, SCANNER,
      'r"put_metric_data|PutMetricData"', 'r"PutMetricData"'),
@@ -99,12 +115,36 @@ CASES = [
     ("unavailable pin is detected", "pins", PINS_SUITE, PINS,
      "        available, detail = ensure_commit(ref)", '        available, detail = (True, "")'),
     ("errors fail the run", "pins", PINS_SUITE, PINS, "if errors:", "if False:"),
+
+    # Dependency installer. Guard discovery found this one uncovered: it decides whether a failed
+    # `uv` run is a missing credential or a stale lockfile, and every branch of that decision
+    # reaches a developer as an error message telling them what to go fix.
+    ("private dependency detection", "install", INSTALL_SUITE, INSTALL,
+     "  if ! has_github_git_dependency; then", "  if true; then"),
+    ("authentication failures are recognised", "install", INSTALL_SUITE, INSTALL,
+     "'Authentication failed|could not read Username|Invalid username or token|"
+     "Repository not found|terminal prompts disabled|returned error: (401|403)'",
+     "'ZZZ_NEVER_MATCHES_ANY_UV_OUTPUT'"),
+    ("missing and invalid tokens are told apart", "install", INSTALL_SUITE, INSTALL,
+     '  if [ -z "${REPO_READ_TOKEN:-}" ]; then', "  if true; then"),
+    ("a token installs a credential helper", "install", INSTALL_SUITE, INSTALL,
+     'if [ -n "${REPO_READ_TOKEN:-}" ]; then', "if false; then"),
+    ("git is never allowed to prompt", "install", INSTALL_SUITE, INSTALL,
+     "export GIT_TERMINAL_PROMPT=0", "export GIT_TERMINAL_PROMPT=1"),
+    ("the credential helper only answers github.com", "install", INSTALL_SUITE, INSTALL,
+     '  "Password for \'https://github.com\'"* | '
+     '"Password for \'https://x-access-token@github.com\'"*)',
+     '  "Password for "*)'),
+    ("the lockfile is checked before syncing", "install", INSTALL_SUITE, INSTALL,
+     "if ! run_uv uv lock --check; then", "if false; then"),
+    ("the credential helper is cleaned up", "install", INSTALL_SUITE, INSTALL,
+     "trap cleanup EXIT", "trap - EXIT"),
 ]
 
 
-def detector_alternatives() -> list[str]:
+def detector_alternatives(scanner: Path) -> list[str]:
     """Every alternative of every metric-cardinality detector, straight from the scanner."""
-    spec = importlib.util.spec_from_file_location("scanner", REPO_ROOT / SCANNER)
+    spec = importlib.util.spec_from_file_location("scanner", scanner)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     alternatives: list[str] = []
@@ -114,15 +154,82 @@ def detector_alternatives() -> list[str]:
     return alternatives
 
 
+def alternatives_disabled_by(target: str, old: str, new: str) -> list[str]:
+    """Which detector alternatives a case actually removes, by applying it and looking."""
+    source = (REPO_ROOT / target).read_text(encoding="utf-8")
+    before = Counter(detector_alternatives(REPO_ROOT / target))
+    with tempfile.TemporaryDirectory(prefix="alternatives-") as tmp:
+        mutated = Path(tmp) / "scanner.py"
+        mutated.write_text(source.replace(old, new, 1), encoding="utf-8")
+        after = Counter(detector_alternatives(mutated))
+    return sorted((before - after).elements())
+
+
 def check_detector_coverage() -> list[str]:
-    """A new detector alternative must arrive with a case, or this fails."""
-    declared = sum(1 for case in CASES if case[1] == "detector")
-    actual = len(detector_alternatives())
-    if declared == actual:
-        return []
+    """Every detector alternative needs the case that disables *it*.
+
+    Counting rows only proved the table was the right size. Eight alternatives and eight cases
+    passed even when two cases disabled the same one and a third alternative went untested --
+    which is the shape R2-F1 and R5-F2 both had. Identity comes from running each mutation and
+    seeing which alternative disappears, so it cannot drift out of step with the labels.
+    """
+    errors: list[str] = []
+    covered: dict[str, list[str]] = {}
+
+    for label, kind, _suite, target, old, new in CASES:
+        if kind != "detector":
+            continue
+        if target != SCANNER:
+            errors.append(f"{label}: a detector case must mutate {SCANNER}, not {target}")
+            continue
+        disabled = alternatives_disabled_by(target, old, new)
+        if len(disabled) != 1:
+            errors.append(
+                f"{label}: a detector case must disable exactly one alternative; "
+                f"this one disables {len(disabled)} ({', '.join(disabled) or 'none'})"
+            )
+            continue
+        covered.setdefault(disabled[0], []).append(label)
+
+    for alternative, required in sorted(Counter(detector_alternatives(REPO_ROOT / SCANNER)).items()):
+        labels = covered.pop(alternative, [])
+        if len(labels) < required:
+            errors.append(
+                f"detector alternative {alternative!r} has no mutation case that disables it"
+            )
+        elif len(labels) > required:
+            errors.append(
+                f"detector alternative {alternative!r} is disabled by {len(labels)} cases "
+                f"({', '.join(labels)}); some other alternative is going untested"
+            )
+    for alternative, labels in sorted(covered.items()):
+        errors.append(
+            f"{', '.join(labels)}: disables {alternative!r}, which the scanner no longer has"
+        )
+    return errors
+
+
+def guard_scripts() -> list[str]:
+    """Every guard script shipped under .github/, found rather than declared."""
+    return sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in (REPO_ROOT / GUARD_ROOT).rglob("*")
+        if path.is_file() and path.suffix in GUARD_SUFFIXES
+    )
+
+
+def check_guard_coverage() -> list[str]:
+    """A guard script added under .github/ must arrive with a case, or this fails.
+
+    The table used to name its guards and nothing else, so a third one could be added tomorrow,
+    ship a pass/fail decision, and never be mutated. Discovering them from the tree instead means
+    the omission fails the build rather than waiting to be noticed in review.
+    """
+    mutated = {case[3] for case in CASES}
     return [
-        f"the scanner advertises {actual} detector alternatives but "
-        f"{declared} have a mutation case; every alternative needs one that bites"
+        f"{guard}: no mutation case breaks this guard, so nothing proves a suite would notice"
+        for guard in guard_scripts()
+        if guard not in mutated
     ]
 
 
@@ -151,7 +258,17 @@ def run_case(label: str, suite: str, target: str, old: str, new: str, workdir: P
 
 
 def main() -> int:
-    failures = check_detector_coverage()
+    failures = check_guard_coverage() + check_detector_coverage()
+
+    # The structural checks read the working tree and cost nothing; the mutations below clone and
+    # run a suite each. --checks-only lets the fixtures that prove the checks bite skip that.
+    if "--checks-only" in sys.argv[1:]:
+        if failures:
+            print("\nMutation coverage failed:\n", file=sys.stderr)
+            print("\n".join(f"  {failure}" for failure in failures), file=sys.stderr)
+            return 1
+        print(f"Coverage checks passed for {len(guard_scripts())} guard scripts.")
+        return 0
 
     for label, _kind, suite, target, old, new in CASES:
         workdir = Path(tempfile.mkdtemp(prefix="mutation-"))
