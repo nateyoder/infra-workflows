@@ -40,6 +40,21 @@ if (
 fi
 grep -F 'tests/lib/post-merge-clone.sh' "$fixture_root/nested.log" >/dev/null
 
+# Git resolves uppercase hexadecimal abbreviations too, so pasted SHAs cannot bypass discovery.
+git clone -q --shared "$repo_root" "$fixture_root/uppercase"
+uppercase_sha=$(git -C "$fixture_root/uppercase" rev-parse --short=8 HEAD | tr '[:lower:]' '[:upper:]')
+printf '\n# stale_sha=%s\n' "$uppercase_sha" \
+  >>"$fixture_root/uppercase/tests/test-action-pins.sh"
+if (
+  cd "$fixture_root/uppercase"
+  python3 .github/scripts/verify-fixture-shas.py
+) >"$fixture_root/uppercase.log" 2>&1; then
+  echo "fixture SHA checker accepted an uppercase repository commit" >&2
+  exit 1
+fi
+grep -F "hard-codes a commit from this repository: $uppercase_sha" \
+  "$fixture_root/uppercase.log" >/dev/null
+
 # A hex literal git cannot resolve here -- a third-party action pin, an unreachable sentinel --
 # carries none of that risk and must stay allowed, or every pin fixture becomes unwritable.
 git clone -q --shared "$repo_root" "$fixture_root/foreign"

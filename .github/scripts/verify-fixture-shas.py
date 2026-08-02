@@ -27,7 +27,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURE_ROOT = REPO_ROOT / "tests"
 FIXTURE_SUFFIXES = (".sh", ".py")
-HEX = re.compile(r"\b[0-9a-f]{7,40}\b")
+HEX = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 
 
 def git(*args: str) -> subprocess.CompletedProcess[str]:

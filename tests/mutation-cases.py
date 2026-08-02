@@ -85,7 +85,11 @@ CASES = [
     # cases because different fixtures hold them: dropping it lets hard-coded history through,
     # and inverting it condemns every third-party pin a fixture legitimately names.
     ("hex literals are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
-     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b")', 'HEX = re.compile(r"(?!x)x")'),
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b", re.IGNORECASE)',
+     'HEX = re.compile(r"(?!x)x")'),
+    ("uppercase hex literals are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b", re.IGNORECASE)',
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b")'),
     ("local commits are rejected", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
      "    return False"),
