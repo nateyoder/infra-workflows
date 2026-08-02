@@ -25,8 +25,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
 PINS = ".github/scripts/verify-action-pins.py"
+FIXTURE_SHAS = ".github/scripts/verify-fixture-shas.py"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
+FIXTURE_SHA_SUITE = "tests/test-fixture-shas.sh"
 
 # (label, kind, suite, file, old, new). `kind` is "detector" for one alternative of a
 # metric-cardinality detector; those are counted against the scanner below.
@@ -78,6 +80,22 @@ CASES = [
     ("unavailable pin is detected", "pins", PINS_SUITE, PINS,
      "        available, detail = ensure_commit(ref)", '        available, detail = (True, "")'),
     ("errors fail the run", "pins", PINS_SUITE, PINS, "if errors:", "if False:"),
+
+    # Fixture SHA checker. The two directions of the "is it a commit here" test are separate
+    # cases because different fixtures hold them: dropping it lets hard-coded history through,
+    # and inverting it condemns every third-party pin a fixture legitimately names.
+    ("hex literals are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b")', 'HEX = re.compile(r"(?!x)x")'),
+    ("local commits are rejected", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
+     "    return False"),
+    ("foreign hex is left alone", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
+     "    return True"),
+    ("nested fixture files are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     "for path in FIXTURE_ROOT.rglob(\"*\")", "for path in FIXTURE_ROOT.glob(\"*\")"),
+    ("fixture SHA errors fail the run", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     "if errors:", "if False:"),
 ]
 
 
