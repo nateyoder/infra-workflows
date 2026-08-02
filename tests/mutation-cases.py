@@ -52,7 +52,8 @@ CASES = [
     ("aws cli put-metric-alarm", "detector", METRIC_SUITE, SCANNER,
      'r"put-metric-data|put-metric-alarm"', 'r"put-metric-data"'),
     ("aws cli dimension shorthand", "detector", METRIC_SUITE, SCANNER,
-     r'r"[Dd]imensions(?:[\s=\\]*[\"\']?)Name=[^,\s]+,Value=\S"', 'r"(?!x)x"'),
+     r'''CLI_DIMENSION = re.compile(r"[Dd]imensions(?:[\s=\\]*[\"']?)Name=[^,\s]+,Value=\S")''',
+     'CLI_DIMENSION = re.compile(r"(?!x)x")'),
 
     # Scanner behaviour that is not a detector alternative.
     ("dimension Name half", "scanner", METRIC_SUITE, SCANNER,
