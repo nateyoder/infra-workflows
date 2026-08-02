@@ -35,7 +35,7 @@ fi
 grep -F 'self-pin content mismatch' "$fixture_root/stale-self-pin.log" >/dev/null
 
 git clone -q --shared "$repo_root" "$fixture_root/floating-ref"
-perl -pi -e 's|actions/checkout@[0-9a-f]{40}|actions/checkout@v7|' \
+perl -pi -e 's|actions/checkout@[0-9a-f]{40}|actions/checkout\@v7|' \
   "$fixture_root/floating-ref/.github/workflows/test-python-ci-contract.yml"
 if (
   cd "$fixture_root/floating-ref"
@@ -44,4 +44,7 @@ if (
   echo "action pin verifier accepted a floating third-party ref" >&2
   exit 1
 fi
-grep -F 'not pinned by full 40-character SHA' "$fixture_root/floating-ref.log" >/dev/null
+grep -F 'external action is not pinned by full 40-character SHA' \
+  "$fixture_root/floating-ref.log" >/dev/null
+
+echo "Action pin verifier passed positive and mutation tests."
