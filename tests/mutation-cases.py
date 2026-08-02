@@ -24,6 +24,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
+METRIC_WORKFLOW = ".github/workflows/metric-cardinality.yml"
 PINS = ".github/scripts/verify-action-pins.py"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
@@ -46,6 +47,12 @@ CASES = [
      r'r"aws_cloudwatch_metric_alarm|MetricName\s*="', r'r"MetricName\s*="'),
     ("MetricName assignment", "detector", METRIC_SUITE, SCANNER,
      r'r"aws_cloudwatch_metric_alarm|MetricName\s*="', 'r"aws_cloudwatch_metric_alarm"'),
+    ("aws cli put-metric-data", "detector", METRIC_SUITE, SCANNER,
+     'r"put-metric-data|put-metric-alarm"', 'r"put-metric-alarm"'),
+    ("aws cli put-metric-alarm", "detector", METRIC_SUITE, SCANNER,
+     'r"put-metric-data|put-metric-alarm"', 'r"put-metric-data"'),
+    ("aws cli dimension shorthand", "detector", METRIC_SUITE, SCANNER,
+     r'r"[Dd]imensions.*Name=[^,\s]+,Value=\S"', 'r"(?!x)x"'),
 
     # Scanner behaviour that is not a detector alternative.
     ("dimension Name half", "scanner", METRIC_SUITE, SCANNER,
@@ -63,6 +70,16 @@ CASES = [
      'elif raw[:1] in "+-" and not raw.startswith(("+++", "---")):'),
     ("line numbers skip the no-newline marker", "scanner", METRIC_SUITE, SCANNER,
      'elif not raw.startswith(("-", "\\\\")):', 'elif True:'),
+    # Drops *.sh from the paths the scanner actually uses while leaving all three copies of the
+    # literal identical, so only the fixture that runs on the default paths can notice.
+    ("shell files are scanned by default", "scanner", METRIC_SUITE, SCANNER,
+     '"*.py *.yml *.yaml *.tf *.json *.sh").split()',
+     '"*.py *.yml *.yaml *.tf *.json *.sh").split()[:5]'),
+    # Consumers get the workflow's copy of the default, never the scanner's fallback, so a
+    # drift here would stop shell scanning in production with every runtime fixture still green.
+    ("default scan paths stay in sync", "scanner", METRIC_SUITE, METRIC_WORKFLOW,
+     'default: "*.py *.yml *.yaml *.tf *.json *.sh"',
+     'default: "*.py *.yml *.yaml *.tf *.json"'),
 
     # Pin verifier.
     ("self-pin content equality", "pins", PINS_SUITE, PINS,
