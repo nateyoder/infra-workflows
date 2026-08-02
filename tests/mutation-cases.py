@@ -66,6 +66,13 @@ CASES = [
     ("blocks do not span separate edits", "scanner", METRIC_SUITE, SCANNER,
      "active_publication = None  # A publication block never crosses an added hunk.",
      "pass  # Keep the preceding hunk's publication active."),
+    ("a bare dimension opens its own block", "scanner", METRIC_SUITE, SCANNER,
+     """if active_publication is None:
+                    next_block += 1
+                    dimension_block = next_block
+                else:
+                    dimension_block = active_publication""",
+     "dimension_block = next_block  # Reuse the prior finding's block."),
     ("only added lines are scanned", "scanner", METRIC_SUITE, SCANNER,
      'elif raw.startswith("+") and not raw.startswith("+++"):',
      'elif raw[:1] in "+-" and not raw.startswith(("+++", "---")):'),

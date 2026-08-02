@@ -54,10 +54,9 @@ To acknowledge, put a marker on the detected line or within three committed line
 # metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
 ```
 
-One marker covers a whole publication. A multi-line call detects on several lines — the call
-itself, then the `Dimensions` nested in its payload, further down than the three-line radius
-reaches — and a single marker beside any of them clears them all. Detections six or fewer lines
-apart within one edit belong to the same publication:
+One marker clears the whole publication it sits in — the call and the `Dimensions` nested inside
+it — regardless of how many fields the payload carries. The next publication, or a separate edit,
+needs its own marker:
 
 ```python
 # metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall

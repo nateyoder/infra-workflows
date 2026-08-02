@@ -147,6 +147,23 @@ cw.put_metric_data(Namespace="Recorder", MetricData=[{"Name": "DeploySha", "Valu
 PYTHON
 expect_fail "$repo" 'svc.py:7  publishes a metric directly'
 
+# An acknowledged non-publication finding must not clear a later bare dimension entry. Without
+# its own block, the deploy-SHA dimension would inherit the acknowledgement beyond ACK_RADIUS.
+repo=$(new_repo bare-dimension-opens-own-block)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 fleet series, paged on by RecorderDepthStall
+RECORDER_ALARM_BOUND = "book_depth"
+pad_a = 1
+pad_b = 2
+pad_c = 3
+pad_d = 4
+EXTRA_DIMS = [
+    {"Name": "deploy_sha", "Value": sha},
+]
+PYTHON
+expect_fail "$repo" 'svc.py:8  adds a metric dimension entry'
+
 # A realistic dimensioned boto3 datum: the call and dimensions are eight lines apart once the
 # API-required Value and ordinary Unit/Timestamp fields are present. Their shared publication,
 # rather than a tuned line gap, lets one note acknowledge both.
