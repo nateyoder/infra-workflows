@@ -27,6 +27,20 @@ def git(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def ensure_commit(ref: str) -> tuple[bool, str]:
+    """Make a pinned commit available without assuming it is in clone history."""
+    if git("cat-file", "-e", f"{ref}^{{commit}}").returncode == 0:
+        return True, ""
+
+    fetch = git("fetch", "--quiet", "--no-tags", "--depth=1", "origin", ref)
+    if fetch.returncode != 0:
+        detail = fetch.stderr.strip() or fetch.stdout.strip() or "git fetch failed"
+        return False, detail
+    if git("cat-file", "-e", f"{ref}^{{commit}}").returncode != 0:
+        return False, "git fetch succeeded but the commit is still unavailable"
+    return True, ""
+
+
 def uses_entries() -> list[tuple[Path, int, str]]:
     entries: list[tuple[Path, int, str]] = []
     yaml_files = sorted(REPO_ROOT.joinpath(".github").rglob("*.yml"))
@@ -71,6 +85,13 @@ def main() -> int:
             continue
         if not REPO_ROOT.joinpath(action_path).exists():
             errors.append(f"{location}: self-referencing action path is missing: {action_path}")
+            continue
+        available, detail = ensure_commit(ref)
+        if not available:
+            errors.append(
+                f"{location}: unable to verify self-pin {ref}; "
+                f"the commit is unavailable after fetching from origin: {detail}"
+            )
             continue
         if git("cat-file", "-e", f"{ref}:{action_path.as_posix()}").returncode != 0:
             errors.append(f"{location}: self-pin does not contain {action_path}: {ref}")

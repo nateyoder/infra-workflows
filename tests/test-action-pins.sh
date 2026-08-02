@@ -47,4 +47,74 @@ fi
 grep -F 'external action is not pinned by full 40-character SHA' \
   "$fixture_root/floating-ref.log" >/dev/null
 
+git clone -q --shared "$repo_root" "$fixture_root/missing-ref"
+perl -pi -e 's|actions/checkout@[0-9a-f]{40}|actions/checkout|' \
+  "$fixture_root/missing-ref/.github/workflows/test-python-ci-contract.yml"
+if (
+  cd "$fixture_root/missing-ref"
+  python3 .github/scripts/verify-action-pins.py
+) >"$fixture_root/missing-ref.log" 2>&1; then
+  echo "action pin verifier accepted a third-party action without a ref" >&2
+  exit 1
+fi
+grep -F 'external action has no immutable ref' "$fixture_root/missing-ref.log" >/dev/null
+
+git clone -q --shared "$repo_root" "$fixture_root/short-sha"
+perl -pi -e 's|actions/checkout@[0-9a-f]{40}|actions/checkout\@9c091bb|' \
+  "$fixture_root/short-sha/.github/workflows/test-python-ci-contract.yml"
+if (
+  cd "$fixture_root/short-sha"
+  python3 .github/scripts/verify-action-pins.py
+) >"$fixture_root/short-sha.log" 2>&1; then
+  echo "action pin verifier accepted an abbreviated third-party SHA" >&2
+  exit 1
+fi
+grep -F 'external action is not pinned by full 40-character SHA' \
+  "$fixture_root/short-sha.log" >/dev/null
+
+git init -q --bare "$fixture_root/origin.git"
+feature_head=$(git -C "$repo_root" rev-parse HEAD)
+base_head=$(git -C "$repo_root" rev-parse origin/main)
+feature_tree=$(git -C "$repo_root" rev-parse HEAD^{tree})
+fixture_origin="file://$fixture_root/origin.git"
+git -C "$repo_root" push -q "$fixture_origin" \
+  "$base_head:refs/heads/base"
+git -C "$repo_root" push -q "$fixture_origin" \
+  "$feature_head:refs/pull/fixture/head"
+pin_index=0
+while IFS= read -r self_pin; do
+  pin_index=$((pin_index + 1))
+  git -C "$repo_root" push -q "$fixture_origin" \
+    "$self_pin:refs/pull/fixture/pin-$pin_index"
+done < <(
+  grep -rhoE 'nateyoder/infra-workflows/[^ @]+@[0-9a-f]{40}' \
+    "$repo_root/.github" | sed 's/.*@//' | sort -u
+)
+squash_head=$(
+  git -c user.name=Fixture -c user.email=fixture@example.invalid \
+    --git-dir="$fixture_root/origin.git" commit-tree "$feature_tree" \
+    -p "$base_head" -m 'synthetic squash merge'
+)
+git --git-dir="$fixture_root/origin.git" update-ref refs/heads/main "$squash_head"
+git --git-dir="$fixture_root/origin.git" update-ref -d refs/heads/base
+
+git clone -q --single-branch --branch main "$fixture_origin" \
+  "$fixture_root/post-merge"
+metric_pin=$(
+  sed -n 's|.*metric-cardinality@\([0-9a-f]\{40\}\).*|\1|p' \
+    "$fixture_root/post-merge/.github/workflows/metric-cardinality.yml"
+)
+if git -C "$fixture_root/post-merge" cat-file -e "$metric_pin^{commit}" 2>/dev/null; then
+  echo "post-merge fixture unexpectedly contains the self-pinned commit" >&2
+  exit 1
+fi
+(
+  cd "$fixture_root/post-merge"
+  python3 .github/scripts/verify-action-pins.py
+) >"$fixture_root/post-merge.log" 2>&1
+grep -F 'Verified 11 immutable external uses entries and 4 self-pins.' \
+  "$fixture_root/post-merge.log" >/dev/null
+git -C "$fixture_root/post-merge" cat-file -e \
+  "$metric_pin:.github/actions/metric-cardinality"
+
 echo "Action pin verifier passed positive and mutation tests."
