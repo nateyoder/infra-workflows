@@ -104,7 +104,8 @@ if grep -F 'self-pin content mismatch' \
   exit 1
 fi
 
-build_post_merge_clone "$repo_root" "$fixture_root"
+build_post_merge_source_with_isolated_pin "$repo_root" "$fixture_root"
+build_post_merge_clone "$post_merge_source" "$fixture_root"
 metric_pin=$(
   sed -n 's|.*metric-cardinality@\([0-9a-f]\{40\}\).*|\1|p' \
     "$post_merge_clone/.github/workflows/metric-cardinality.yml"

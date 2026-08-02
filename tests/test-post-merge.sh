@@ -15,7 +15,8 @@ trap 'rm -rf "$scratch"' EXIT
 # shellcheck source=tests/lib/post-merge-clone.sh
 . "$repo_root/tests/lib/post-merge-clone.sh"
 
-build_post_merge_clone "$repo_root" "$scratch"
+build_post_merge_source_with_isolated_pin "$repo_root" "$scratch"
+build_post_merge_clone "$post_merge_source" "$scratch"
 
 # The premise of the whole exercise: the pins this repo depends on are not in this clone.
 absent=0

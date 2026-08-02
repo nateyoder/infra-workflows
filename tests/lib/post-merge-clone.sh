@@ -15,7 +15,47 @@
 #     GitHub, which serves them on request but never fetches them into a clone by default;
 #   * the clone is `--single-branch --branch main`, which is what `actions/checkout` produces.
 #
-# Sourced by tests; sets `post_merge_clone` to the resulting checkout.
+# Sourced by tests; sets `post_merge_source` and `post_merge_clone`.
+
+build_post_merge_source_with_isolated_pin() {
+  local repo_root=$1
+  local scratch=$2
+
+  # A real pin may already be reachable from main when its PR was merge-committed. Give the
+  # current action content a parentless commit so the fixture always exercises recovery of a pin
+  # that exists only under refs/pull/*, regardless of the repository's merge strategy.
+  post_merge_source="$scratch/post-merge-source"
+  git clone -q --shared "$repo_root" "$post_merge_source"
+
+  # Carry the caller's working tree into the source clone so this remains a pre-commit test. Write
+  # snapshot objects into the temporary clone rather than the caller's object database.
+  local feature_tree isolated_pin repo_objects snapshot_index
+  repo_objects=$(git -C "$repo_root" rev-parse --path-format=absolute --git-path objects)
+  snapshot_index="$scratch/post-merge-source.index"
+  feature_tree=$(
+    GIT_INDEX_FILE="$snapshot_index" \
+      GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
+      GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
+      git -C "$repo_root" read-tree HEAD \
+      && GIT_INDEX_FILE="$snapshot_index" \
+        GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
+        git -C "$repo_root" add -A \
+      && GIT_INDEX_FILE="$snapshot_index" \
+        GIT_OBJECT_DIRECTORY="$post_merge_source/.git/objects" \
+        GIT_ALTERNATE_OBJECT_DIRECTORIES="$repo_objects" \
+        git -C "$repo_root" write-tree
+  )
+  git -C "$post_merge_source" read-tree --reset -u "$feature_tree"
+
+  isolated_pin=$(
+    git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgSign=false \
+      -C "$post_merge_source" commit-tree "$feature_tree" \
+      -m 'synthetic unreachable self-pin'
+  )
+  perl -pi -e "s|(metric-cardinality@)[0-9a-f]{40}|\${1}$isolated_pin|" \
+    "$post_merge_source/.github/workflows/metric-cardinality.yml"
+}
 
 build_post_merge_clone() {
   local repo_root=$1
