@@ -105,6 +105,22 @@ def dimensions():
 PYTHON
 expect_fail "$repo" 'svc.py:4  adds a metric dimension entry'
 
+# Each source isolates one PATTERNS alternative so removing that alternative makes its case pass.
+while IFS='|' read -r name source expected; do
+  repo=$(new_repo "$name")
+  start_change "$repo"
+  printf '%s\n' "$source" >"$repo/svc.py"
+  expect_fail "$repo" "svc.py:1  $expected"
+done <<'DETECTOR_CASES'
+put-metric-data-client|cloudwatch.PutMetricData(MetricData=[])|publishes a metric directly
+dimensions-literal|payload = {"Dimensions": [dimension]}|adds a non-empty Dimensions list
+per-stream-metrics|metrics = _PER_STREAM_METRICS|adds a per-producer metric tier
+per-service-metrics|metrics = _PER_SERVICE_METRICS|adds a per-producer metric tier
+alarm-bound-metrics|metrics = _ALARM_BOUND|adds a published metric name
+cloudwatch-metric-alarm|resource "aws_cloudwatch_metric_alarm" "latency" {}|adds a metric or alarm
+metric-name-assignment|MetricName = "Latency"|adds a metric or alarm
+DETECTOR_CASES
+
 repo=$(new_repo committed-acknowledgement)
 cat >"$repo/svc.py" <<'PYTHON'
 # metric-budget: 1 fleet series, paged on by recorder-data-loss
