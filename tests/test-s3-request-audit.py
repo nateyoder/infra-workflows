@@ -51,8 +51,72 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(audit.AuditError, "issue-reviewed"):
             audit.validate_config(config)
 
+    def test_expected_log_volume_must_fit_the_hard_cap(self):
+        config = self.config()
+        config["max_log_bytes"] = 1
+
+        with self.assertRaisesRegex(audit.AuditError, "max_log_bytes"):
+            audit.validate_config(config)
+
 
 class SafetyTests(unittest.TestCase):
+    def test_start_arms_every_restore_before_any_enable(self):
+        aws = mock.Mock()
+
+        def call(*args, **_kwargs):
+            if args[:2] == ("sts", "get-caller-identity"):
+                return {
+                    "Account": "303529433772",
+                    "Arn": "arn:aws:iam::303529433772:role/FinOpsAudit",
+                }
+            if args[:2] == ("s3api", "get-bucket-location"):
+                return {"LocationConstraint": "us-east-2"}
+            return {}
+
+        aws.call.side_effect = call
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(
+            audit, "AwsCli", return_value=aws
+        ), mock.patch.multiple(
+            audit,
+            activate_tags=mock.DEFAULT,
+            create_destination=mock.DEFAULT,
+            merge_tags=mock.DEFAULT,
+            prior_tags=mock.DEFAULT,
+            schedule_logging=mock.DEFAULT,
+            schedule_role=mock.DEFAULT,
+            upload_state=mock.DEFAULT,
+            verify_destination=mock.DEFAULT,
+            write_state=mock.DEFAULT,
+        ) as helpers:
+            helpers["activate_tags"].return_value = ([], [])
+            helpers["create_destination"].return_value = {}
+            helpers["prior_tags"].return_value = {}
+            helpers["schedule_role"].return_value = "role"
+            helpers["upload_state"].return_value = "state-key"
+            audit.start(
+                CONFIG,
+                Path(directory) / "state.json",
+                "2026-08-04",
+                now=audit.dt.datetime(2026, 8, 2, tzinfo=audit.UTC),
+            )
+
+        names = [item.args[2] for item in helpers["schedule_logging"].call_args_list]
+        source_count = len(json.loads(CONFIG.read_text())["sources"])
+        self.assertEqual(len(names), source_count * 2)
+        self.assertTrue(all(name.startswith("restore-") for name in names[:source_count]))
+        self.assertTrue(all(name.startswith("enable-") for name in names[source_count:]))
+
+    def test_start_rejects_a_window_less_than_fifteen_minutes_away(self):
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
+            audit.AuditError, "at least 15 minutes"
+        ):
+            audit.start(
+                CONFIG,
+                Path(directory) / "state.json",
+                "2026-08-03",
+                now=audit.dt.datetime(2026, 8, 2, 23, 50, tzinfo=audit.UTC),
+            )
+
     def test_assumed_role_session_uses_durable_operator_principal(self):
         self.assertEqual(
             audit.durable_operator_arn(
@@ -85,10 +149,54 @@ class SafetyTests(unittest.TestCase):
         self.assertEqual(target["RetryPolicy"]["MaximumRetryAttempts"], 10)
         self.assertEqual(json.loads(target["Input"]), expected_input)
 
+    def test_schedule_verification_rejects_wrong_time_or_input(self):
+        when = audit.dt.datetime(2026, 8, 5, tzinfo=audit.UTC)
+        expected_input = {"Bucket": "source", "BucketLoggingStatus": {}}
+        cases = (
+            (
+                {
+                    "ScheduleExpression": "at(2026-08-06T00:00:00)",
+                    "State": "ENABLED",
+                    "Target": {"Input": audit.canonical(expected_input)},
+                },
+                "wrong execution time",
+            ),
+            (
+                {
+                    "ScheduleExpression": "at(2026-08-05T00:00:00)",
+                    "State": "ENABLED",
+                    "Target": {"Input": audit.canonical({"Bucket": "other"})},
+                },
+                "reviewed logging state",
+            ),
+        )
+        for actual, message in cases:
+            with self.subTest(message=message):
+                aws = mock.Mock()
+                aws.call.side_effect = [{}, actual]
+                with self.assertRaisesRegex(audit.AuditError, message):
+                    audit.schedule_logging(aws, "group", "restore", when, "role", "source", {})
+
     def test_recursive_destination_fails(self):
         aws = mock.Mock()
         aws.call.return_value = {"LoggingEnabled": {"TargetBucket": "itself"}}
         with self.assertRaisesRegex(audit.AuditError, "recursive"):
+            audit.verify_destination(aws, "audit-bucket", 7)
+
+    def test_destination_requires_every_public_access_block(self):
+        aws = mock.Mock()
+        aws.call.side_effect = [
+            {},
+            {
+                "PublicAccessBlockConfiguration": {
+                    "BlockPublicAcls": True,
+                    "IgnorePublicAcls": True,
+                    "BlockPublicPolicy": True,
+                    "RestrictPublicBuckets": False,
+                }
+            },
+        ]
+        with self.assertRaisesRegex(audit.AuditError, "public access"):
             audit.verify_destination(aws, "audit-bucket", 7)
 
     def test_missing_lifecycle_fails(self):
@@ -174,6 +282,17 @@ class SafetyTests(unittest.TestCase):
             "sources": [{"bucket": "source", "prior_logging": {}}],
         }
         with self.assertRaisesRegex(audit.AuditError, "incomplete"):
+            audit.restore_and_verify(state, aws)
+
+    def test_teardown_rejects_restored_recursive_logging(self):
+        recursive = {"LoggingEnabled": {"TargetBucket": "audit"}}
+        aws = mock.Mock()
+        aws.call.return_value = recursive
+        state = {
+            "destination_bucket": "audit",
+            "sources": [{"bucket": "source", "prior_logging": recursive}],
+        }
+        with self.assertRaisesRegex(audit.AuditError, "recursive"):
             audit.restore_and_verify(state, aws)
 
 
