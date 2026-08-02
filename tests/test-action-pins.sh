@@ -21,10 +21,21 @@ if (
 fi
 grep -F 'self-pin content mismatch' "$fixture_root/content-drift.log" >/dev/null
 
+# The stale commit is built here rather than hard-coded, so the case does not depend on any
+# particular SHA still being reachable. A hard-coded historical SHA passes on the branch that
+# happens to contain it and fails everywhere else.
 git clone -q --shared "$repo_root" "$fixture_root/stale-self-pin"
-perl -pi -e \
-  's|(metric-cardinality@)[0-9a-f]{40}|${1}087da8d7a68bcf2d72ba0cff7674198f53df18cc|' \
-  "$fixture_root/stale-self-pin/.github/workflows/metric-cardinality.yml"
+(
+  cd "$fixture_root/stale-self-pin"
+  printf '\n# divergent payload present only in the pinned commit\n' \
+    >>.github/actions/metric-cardinality/action.yml
+  git add -A
+  git -c user.name=Fixture -c user.email=fixture@example.invalid commit -qm 'divergent action'
+  stale_sha=$(git rev-parse HEAD)
+  git reset -q --hard HEAD~1
+  perl -pi -e "s|(metric-cardinality\@)[0-9a-f]{40}|\${1}$stale_sha|" \
+    .github/workflows/metric-cardinality.yml
+)
 if (
   cd "$fixture_root/stale-self-pin"
   python3 .github/scripts/verify-action-pins.py

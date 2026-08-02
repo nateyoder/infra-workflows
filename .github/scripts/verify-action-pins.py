@@ -32,7 +32,9 @@ def ensure_commit(ref: str) -> tuple[bool, str]:
     if git("cat-file", "-e", f"{ref}^{{commit}}").returncode == 0:
         return True, ""
 
-    fetch = git("fetch", "--quiet", "--no-tags", "--depth=1", "origin", ref)
+    # Deliberately not --depth=1: a shallow fetch marks the checkout shallow, and later
+    # steps cannot push the fetched commits ("shallow update not allowed").
+    fetch = git("fetch", "--quiet", "--no-tags", "origin", ref)
     if fetch.returncode != 0:
         detail = fetch.stderr.strip() or fetch.stdout.strip() or "git fetch failed"
         return False, detail
