@@ -17,3 +17,7 @@ jobs:
       - run: bash tests/test-private-git-auth.sh
       - run: bash tests/test-metric-cardinality.sh
       - run: bash tests/test-action-pins.sh
+      # Proves the suites above fail when the guards they cover stop working.
+      - run: bash tests/test-mutations.sh
+      # Runs them again on a squash-merged checkout, where three defects have hidden before.
+      - run: bash tests/test-post-merge.sh
