@@ -95,7 +95,12 @@ deploy SHA used as a dimension, which re-minted every series on every release.
 
 Scans **added** diff lines for the shapes that create billed series — `put_metric_data`, a
 non-empty `Dimensions` list, a `{"Name": ..., "Value": ...}` dimension entry, a new published
-metric name — and fails with an explanation of the cost model.
+metric name, and the AWS CLI equivalents (`put-metric-data`, `put-metric-alarm`, and
+`--dimensions Name=...,Value=...` shorthand) — and fails with an explanation of the cost model.
+
+The CLI subcommands fire on their own, without `--dimensions`, exactly as `put_metric_data`
+does: a dimensionless publish still mints one billed series, and shelling out should not be a
+softer path to a metric than the SDK.
 
 It cannot know whether a metric is worth its cost. It only forces someone to say so in writing.
 To acknowledge, put a marker on the detected line or within three committed lines of it:
@@ -117,8 +122,8 @@ jobs:
       contents: read
 ```
 
-Optional inputs: `paths` (default `*.py *.yml *.yaml *.tf *.json`) and `base-ref` (defaults to
-the PR base branch).
+Optional inputs: `paths` (default `*.py *.yml *.yaml *.tf *.json *.sh`) and `base-ref` (defaults
+to the PR base branch).
 
 ---
 

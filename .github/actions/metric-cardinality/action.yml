@@ -5,7 +5,7 @@ inputs:
   paths:
     description: "Space-separated pathspecs to scan"
     required: false
-    default: "*.py *.yml *.yaml *.tf *.json"
+    default: "*.py *.yml *.yaml *.tf *.json *.sh"
   base-ref:
     description: "Base ref to diff against"
     required: false
