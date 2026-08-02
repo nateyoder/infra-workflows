@@ -42,7 +42,7 @@ grep -F 'tests/lib/post-merge-clone.sh' "$fixture_root/nested.log" >/dev/null
 
 # Git resolves uppercase hexadecimal abbreviations too, so pasted SHAs cannot bypass discovery.
 git clone -q --shared "$repo_root" "$fixture_root/uppercase"
-uppercase_sha=$(git -C "$fixture_root/uppercase" rev-parse --short=8 HEAD | tr '[:lower:]' '[:upper:]')
+uppercase_sha=$(git -C "$fixture_root/uppercase" rev-parse HEAD | tr '[:lower:]' '[:upper:]')
 printf '\n# stale_sha=%s\n' "$uppercase_sha" \
   >>"$fixture_root/uppercase/tests/test-action-pins.sh"
 if (
