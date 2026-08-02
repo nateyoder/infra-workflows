@@ -147,6 +147,84 @@ cw.put_metric_data(Namespace="Recorder", MetricData=[{"Name": "DeploySha", "Valu
 PYTHON
 expect_fail "$repo" 'svc.py:7  publishes a metric directly'
 
+# The canonical dimensioned boto3 shape: the call and the dimensions nested in its payload are
+# five lines apart, so before block grouping one note cleared the call and left the dimensions
+# behind, and the failure message asked for a note that could not exist.
+repo=$(new_repo dimensioned-block-one-acknowledgement)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+PYTHON
+expect_pass "$repo"
+
+# The same block with no note at all still fails, on every line of it.
+repo=$(new_repo dimensioned-block-unacknowledged)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+PYTHON
+expect_fail "$repo" 'svc.py:6  adds a non-empty Dimensions list'
+
+# A block ends where the publications stop being adjacent: nine lines apart is two blocks, and
+# the note on the first one says nothing about the second.
+repo=$(new_repo acknowledgement-block-is-bounded)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 fleet series, paged on by recorder-data-loss
+cw.put_metric_data(Namespace="Recorder")
+
+
+
+
+
+
+
+
+cw.put_metric_data(Namespace="RecorderV2")
+PYTHON
+expect_fail "$repo" 'svc.py:11  publishes a metric directly'
+
+# Adjacency is measured in the diff, not the file. These two publications are four lines apart
+# but arrive as separate hunks, so the note on the first cannot clear the second.
+repo=$(new_repo acknowledgement-does-not-cross-edits)
+cat >"$repo/svc.py" <<'PYTHON'
+import os
+
+
+
+
+print("tail")
+PYTHON
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+import os
+# metric-budget: 1 fleet series, paged on by recorder-data-loss
+cw.put_metric_data(Namespace="Recorder")
+
+
+
+cw.put_metric_data(Namespace="RecorderV2")
+print("tail")
+PYTHON
+expect_fail "$repo" 'svc.py:7  publishes a metric directly'
+
 repo=$(new_repo no-trailing-newline-acknowledged)
 printf '%s' '# metric-budget: 1 fleet series, paged on by recorder-data-loss
 

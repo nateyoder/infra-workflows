@@ -29,6 +29,7 @@ DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')
 ACK = re.compile(r"metric-budget:\s*\S", re.IGNORECASE)
 ACK_RADIUS = 3
 DIMENSION_WINDOW = 5
+BLOCK_GAP = 6
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -64,10 +65,52 @@ def is_acknowledged(path: str, lineno: int) -> bool:
     return ACK.search("\n".join(lines[start:end])) is not None
 
 
+def blocks_by_site(sites: set[tuple[str, int, int]]) -> dict[tuple[str, int, int], int]:
+    """Number the publication block each (path, hunk, line) site belongs to.
+
+    One publication is several lines -- the call, then the dimensions nested inside its payload
+    -- so it yields findings up to BLOCK_GAP lines apart. Treating those as one block is what
+    lets a single note clear them all, which is what the failure message promises.
+
+    The hunk is part of the identity, so the run has to be contiguous in the diff and not merely
+    close in the file: at --unified=0 a hunk is exactly one unbroken run of added lines, so a
+    note on one edit cannot reach a separate edit that happened to land a few lines away.
+    """
+    block: dict[tuple[str, int, int], int] = {}
+    current = 0
+    previous: tuple[str, int, int] | None = None
+    for site in sorted(sites):
+        path, hunk, lineno = site
+        if previous is not None and (
+            path != previous[0] or hunk != previous[1] or lineno - previous[2] > BLOCK_GAP
+        ):
+            current += 1
+        block[site] = current
+        previous = site
+    return block
+
+
+def unacknowledged(found: list[tuple[str, int, str, str, int]]) -> list[tuple[str, int, str, str]]:
+    """Drop every finding whose block carries an acknowledgement, and shed the hunk tag."""
+    block = blocks_by_site({(path, hunk, lineno) for path, lineno, _r, _s, hunk in found})
+    acknowledged = {
+        block[(path, hunk, lineno)]
+        for path, lineno, _r, _s, hunk in found
+        if is_acknowledged(path, lineno)
+    }
+    return [
+        (path, lineno, reason, snippet)
+        for path, lineno, reason, snippet, hunk in found
+        if block[(path, hunk, lineno)] not in acknowledged
+    ]
+
+
 def scan(diff: str) -> list[tuple[str, int, str, str]]:
-    findings: list[tuple[str, int, str, str]] = []
+    # Tagged with the hunk each finding came from; unacknowledged() groups on it, then sheds it.
+    found: list[tuple[str, int, str, str, int]] = []
     path: str | None = None
     hunk_added: list[tuple[int, str]] = []
+    hunk = 0
 
     def flush() -> None:
         if path is None or not hunk_added:
@@ -76,7 +119,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
         for lineno, line in hunk_added:
             for pattern, reason in PATTERNS:
                 if pattern.search(line):
-                    findings.append((path, lineno, reason, line.strip()[:120]))
+                    found.append((path, lineno, reason, line.strip()[:120], hunk))
                     break
 
         for index, (lineno, line) in enumerate(hunk_added):
@@ -86,17 +129,21 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
                 added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
             )
             if DIMENSION_VALUE.search(candidate):
-                findings.append((path, lineno, "adds a metric dimension entry", line.strip()[:120]))
+                found.append(
+                    (path, lineno, "adds a metric dimension entry", line.strip()[:120], hunk)
+                )
 
     lineno = 0
     for raw in diff.splitlines():
         if raw.startswith("+++ b/"):
             flush()
             hunk_added = []
+            hunk = 0
             path = raw[6:]
         elif raw.startswith("@@"):
             flush()
             hunk_added = []
+            hunk += 1
             match = re.search(r"\+(\d+)", raw)
             lineno = int(match.group(1)) if match else 0
         elif raw.startswith("+") and not raw.startswith("+++"):
@@ -106,7 +153,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
             lineno += 1
     flush()
 
-    return [finding for finding in findings if not is_acknowledged(finding[0], finding[1])]
+    return unacknowledged(found)
 
 
 def main() -> int:
@@ -135,8 +182,13 @@ def main() -> int:
         "\nfor $0.005/GB scanned and can group by any field, including ones too"
         "\nhigh-cardinality to ever be a dimension."
         "\n"
-        "\nIf the cost is intended, say so on the added line or a nearby committed line:"
+        "\nIf the cost is intended, say so on the added line or within three committed lines"
+        "\nof it:"
         "\n    # metric-budget: 1 fleet series, paged on by <alarm name>"
+        "\n"
+        "\nOne note clears the whole publication it sits in -- the call and the dimensions"
+        "\nnested inside it -- so findings no more than six lines apart in the same edit need"
+        "\nonly one note between them. Publications added separately each need their own."
     )
     return 1
 

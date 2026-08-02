@@ -54,6 +54,27 @@ To acknowledge, put a marker on the detected line or within three committed line
 # metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
 ```
 
+One marker covers a whole publication. A multi-line call detects on several lines — the call
+itself, then the `Dimensions` nested in its payload, further down than the three-line radius
+reaches — and a single marker beside any of them clears them all. Detections six or fewer lines
+apart within one edit belong to the same publication:
+
+```python
+# metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+```
+
+Adjacency is measured in the diff, so publications added as separate edits each need their own
+marker even when they end up close together in the file.
+
 If a value is only read while debugging, prefer a log line: Logs Insights queries it for
 $0.005/GB scanned and can group by fields far too high-cardinality to be a dimension.
 
