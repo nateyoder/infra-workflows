@@ -7,6 +7,9 @@ verifier="$repo_root/.github/scripts/verify-action-pins.py"
 fixture_root=$(mktemp -d "${TMPDIR:-/tmp}/action-pin-test.XXXXXX")
 trap 'rm -rf "$fixture_root"' EXIT
 
+# shellcheck source=tests/lib/post-merge-clone.sh
+. "$repo_root/tests/lib/post-merge-clone.sh"
+
 python3 "$verifier"
 
 git clone -q --shared "$repo_root" "$fixture_root/content-drift"
@@ -101,49 +104,22 @@ if grep -F 'self-pin content mismatch' \
   exit 1
 fi
 
-git init -q --bare "$fixture_root/origin.git"
-feature_head=$(git -C "$repo_root" rev-parse HEAD)
-base_head=$(git -C "$repo_root" rev-parse origin/main)
-feature_tree=$(git -C "$repo_root" rev-parse HEAD^{tree})
-fixture_origin="file://$fixture_root/origin.git"
-git -C "$repo_root" push -q "$fixture_origin" \
-  "$base_head:refs/heads/base"
-git -C "$repo_root" push -q "$fixture_origin" \
-  "$feature_head:refs/pull/fixture/head"
-pin_index=0
-while IFS= read -r self_pin; do
-  pin_index=$((pin_index + 1))
-  git -C "$repo_root" push -q "$fixture_origin" \
-    "$self_pin:refs/pull/fixture/pin-$pin_index"
-done < <(
-  grep -rhoE 'nateyoder/infra-workflows/[^ @]+@[0-9a-f]{40}' \
-    "$repo_root/.github" | sed 's/.*@//' | sort -u
-)
-squash_head=$(
-  git -c user.name=Fixture -c user.email=fixture@example.invalid \
-    --git-dir="$fixture_root/origin.git" commit-tree "$feature_tree" \
-    -p "$base_head" -m 'synthetic squash merge'
-)
-git --git-dir="$fixture_root/origin.git" update-ref refs/heads/main "$squash_head"
-git --git-dir="$fixture_root/origin.git" update-ref -d refs/heads/base
-
-git clone -q --single-branch --branch main "$fixture_origin" \
-  "$fixture_root/post-merge"
+build_post_merge_clone "$repo_root" "$fixture_root"
 metric_pin=$(
   sed -n 's|.*metric-cardinality@\([0-9a-f]\{40\}\).*|\1|p' \
-    "$fixture_root/post-merge/.github/workflows/metric-cardinality.yml"
+    "$post_merge_clone/.github/workflows/metric-cardinality.yml"
 )
-if git -C "$fixture_root/post-merge" cat-file -e "$metric_pin^{commit}" 2>/dev/null; then
+if git -C "$post_merge_clone" cat-file -e "$metric_pin^{commit}" 2>/dev/null; then
   echo "post-merge fixture unexpectedly contains the self-pinned commit" >&2
   exit 1
 fi
 (
-  cd "$fixture_root/post-merge"
+  cd "$post_merge_clone"
   python3 .github/scripts/verify-action-pins.py
 ) >"$fixture_root/post-merge.log" 2>&1
 grep -F 'Verified 11 immutable external uses entries and 4 self-pins.' \
   "$fixture_root/post-merge.log" >/dev/null
-git -C "$fixture_root/post-merge" cat-file -e \
+git -C "$post_merge_clone" cat-file -e \
   "$metric_pin:.github/actions/metric-cardinality"
 
 echo "Action pin verifier passed positive and mutation tests."
