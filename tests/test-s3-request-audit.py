@@ -53,6 +53,18 @@ class ConfigTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_assumed_role_session_uses_durable_operator_principal(self):
+        self.assertEqual(
+            audit.durable_operator_arn(
+                "arn:aws:sts::303529433772:assumed-role/FinOpsAudit/session-123"
+            ),
+            "arn:aws:iam::303529433772:role/FinOpsAudit",
+        )
+        with self.assertRaisesRegex(audit.AuditError, "durable"):
+            audit.durable_operator_arn(
+                "arn:aws:sts::303529433772:federated-user/temporary"
+            )
+
     def test_schedule_is_exact_retrying_and_self_deleting(self):
         aws = mock.Mock()
         expected_input = {"Bucket": "source", "BucketLoggingStatus": {}}

@@ -160,6 +160,16 @@ def bucket_region(raw: dict[str, Any]) -> str:
     return raw.get("LocationConstraint") or "us-east-1"
 
 
+def durable_operator_arn(identity_arn: str) -> str:
+    """Turn an STS role-session ARN into the stable IAM role principal."""
+    assumed = re.fullmatch(r"arn:aws:sts::(\d{12}):assumed-role/([^/]+)/[^/]+", identity_arn)
+    if assumed:
+        return f"arn:aws:iam::{assumed.group(1)}:role/{assumed.group(2)}"
+    if ":federated-user/" in identity_arn:
+        raise AuditError("use a durable IAM role or user, not a federated-user session")
+    return identity_arn
+
+
 def prior_tags(aws: AwsCli, bucket: str) -> dict[str, str]:
     response = aws.call(
         "s3api", "get-bucket-tagging", "--bucket", bucket,
@@ -225,12 +235,15 @@ def create_destination(
     }, {
         "Sid": "DenyOtherPrincipals",
         "Effect": "Deny",
-        "NotPrincipal": {
-            "AWS": operator_arn,
-            "Service": ["logging.s3.amazonaws.com", "s3.amazonaws.com"],
-        },
+        "Principal": "*",
         "Action": "s3:*",
         "Resource": [f"arn:aws:s3:::{bucket}", f"arn:aws:s3:::{bucket}/*"],
+        "Condition": {
+            "ArnNotEquals": {"aws:PrincipalArn": operator_arn},
+            "StringNotEqualsIfExists": {
+                "aws:PrincipalServiceName": ["logging.s3.amazonaws.com", "s3.amazonaws.com"]
+            },
+        },
     }, {
         "Sid": "DenyInsecureTransport",
         "Effect": "Deny",
@@ -428,7 +441,7 @@ def start(config_path: Path, state_path: Path, sample_start: str | None, now: dt
     identity = aws.call("sts", "get-caller-identity")
     if identity.get("Account") != config["account_id"]:
         raise AuditError("configured AWS account does not match the active identity")
-    operator_arn = identity["Arn"]
+    operator_arn = durable_operator_arn(identity["Arn"])
 
     source_states: list[dict[str, Any]] = []
     for source in config["sources"]:
