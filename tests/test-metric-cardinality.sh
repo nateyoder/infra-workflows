@@ -146,3 +146,27 @@ cw.put_metric_data(Namespace="Recorder")
 cw.put_metric_data(Namespace="Recorder", MetricData=[{"Name": "DeploySha", "Value": sha}])
 PYTHON
 expect_fail "$repo" 'svc.py:7  publishes a metric directly'
+
+repo=$(new_repo no-trailing-newline-acknowledged)
+printf '%s' '# metric-budget: 1 fleet series, paged on by recorder-data-loss
+
+
+cw.put_metric_data(Namespace="Recorder")' >"$repo/svc.py"
+start_change "$repo"
+printf '%s' '# metric-budget: 1 fleet series, paged on by recorder-data-loss
+
+
+cw.put_metric_data(Namespace="RecorderV2")' >"$repo/svc.py"
+expect_pass "$repo"
+
+repo=$(new_repo no-trailing-newline-line-number)
+printf '%s' '# unacknowledged metric
+
+
+cw.put_metric_data(Namespace="Recorder")' >"$repo/svc.py"
+start_change "$repo"
+printf '%s' '# unacknowledged metric
+
+
+cw.put_metric_data(Namespace="RecorderV2")' >"$repo/svc.py"
+expect_fail "$repo" 'svc.py:4  publishes a metric directly'

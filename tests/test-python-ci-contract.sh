@@ -95,6 +95,13 @@ require_file .github/actions/setup-python-env/action.yml 'REPO_READ_TOKEN: ${{ i
 require_file .github/actions/setup-python-env/action.yml 'run: "$GITHUB_ACTION_PATH/install-dependencies.sh"'
 require_file .github/workflows/metric-cardinality.yml 'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7'
 require_file .github/workflows/metric-cardinality.yml 'nateyoder/infra-workflows/.github/actions/metric-cardinality@087da8d7a68bcf2d72ba0cff7674198f53df18cc'
+
+metric_action=.github/actions/metric-cardinality/action.yml
+metric_script=$(sed -n 's|.*run: python3 "$GITHUB_ACTION_PATH/\(.*\)"|\1|p' "$metric_action")
+[ -n "$metric_script" ] && [ -f "$(dirname "$metric_action")/$metric_script" ] || {
+  echo "metric action points at a missing scanner: $metric_script" >&2
+  exit 1
+}
 require_count 2 'repo-read-token: ${{ secrets.repo-read-token }}'
 
 # A shared workflow should not need write permission or a third-party PR bot.

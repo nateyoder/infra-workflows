@@ -102,7 +102,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
         elif raw.startswith("+") and not raw.startswith("+++"):
             hunk_added.append((lineno, raw[1:]))
             lineno += 1
-        elif not raw.startswith("-"):
+        elif not raw.startswith(("-", "\\")):
             lineno += 1
     flush()
 
