@@ -98,6 +98,10 @@ CASES = [
      'if actual.get("ScheduleExpression") != expression:', "if False:"),
     ("schedule input and state are verified", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
      'if actual_input != expected_input or actual.get("State") != "ENABLED":', "if False:"),
+    ("retrieved log volume stays under the hard cap", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if total_bytes > state["max_log_bytes"]:', "if False:"),
+    ("retrieval cost stays under the audit budget", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if projected_cost >= state["budget_usd"]:', "if False:"),
 ]
 
 

@@ -297,6 +297,53 @@ class SafetyTests(unittest.TestCase):
 
 
 class ReportTests(unittest.TestCase):
+    def test_retrieval_stops_at_runtime_volume_and_cost_caps(self):
+        base_state = {
+            "started_at": "2026-08-01T00:00:00+00:00",
+            "ends_at": "2026-08-01T01:00:00+00:00",
+            "destination_bucket": "audit",
+            "audit_id": "sample",
+            "sources": [{"bucket": "source", "prefix": "source"}],
+            "max_log_bytes": 10,
+            "storage_usd_per_gb_month": 0,
+            "retention_days": 7,
+            "effective_request_rates": {"tier2_per_request_usd": 0},
+            "cost_explorer_query_usd": 0,
+            "budget_usd": 10,
+        }
+        cases = (
+            ({"max_log_bytes": 1}, "max_log_bytes"),
+            (
+                {
+                    "effective_request_rates": {"tier2_per_request_usd": 0.6},
+                    "budget_usd": 1,
+                },
+                "audit budget",
+            ),
+        )
+        for override, message in cases:
+            with self.subTest(message=message), mock.patch.multiple(
+                audit,
+                activate_tags=mock.DEFAULT,
+                cleanup_scheduler=mock.DEFAULT,
+                iter_objects=mock.DEFAULT,
+                restore_and_verify=mock.DEFAULT,
+            ) as helpers:
+                state = base_state | override
+                helpers["activate_tags"].return_value = ([], [])
+                helpers["iter_objects"].return_value = [
+                    {"Key": "one", "Size": 1},
+                    {"Key": "two", "Size": 1},
+                ]
+                helpers["restore_and_verify"].return_value = []
+                aws = mock.Mock()
+                aws.download.side_effect = (
+                    lambda _bucket, _key, path: path.write_text("", encoding="utf-8")
+                )
+
+                with self.assertRaisesRegex(audit.AuditError, message):
+                    audit.build_report(state, aws)
+
     def test_log_classification(self):
         self.assertEqual(audit.classify("REST.GET.OBJECT", "GET /x HTTP/1.1"), "tier2_like")
         self.assertEqual(audit.classify("REST.PUT.OBJECT", "PUT /x HTTP/1.1"), "tier1_like")
