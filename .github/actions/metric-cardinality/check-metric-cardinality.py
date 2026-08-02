@@ -29,7 +29,6 @@ DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')
 ACK = re.compile(r"metric-budget:\s*\S", re.IGNORECASE)
 ACK_RADIUS = 3
 DIMENSION_WINDOW = 5
-BLOCK_GAP = 6
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -65,72 +64,76 @@ def is_acknowledged(path: str, lineno: int) -> bool:
     return ACK.search("\n".join(lines[start:end])) is not None
 
 
-def blocks_by_site(sites: set[tuple[str, int, int]]) -> dict[tuple[str, int, int], int]:
-    """Number the publication block each (path, hunk, line) site belongs to.
-
-    One publication is several lines -- the call, then the dimensions nested inside its payload
-    -- so it yields findings up to BLOCK_GAP lines apart. Treating those as one block is what
-    lets a single note clear them all, which is what the failure message promises.
-
-    The hunk is part of the identity, so the run has to be contiguous in the diff and not merely
-    close in the file: at --unified=0 a hunk is exactly one unbroken run of added lines, so a
-    note on one edit cannot reach a separate edit that happened to land a few lines away.
-    """
-    block: dict[tuple[str, int, int], int] = {}
-    current = 0
-    previous: tuple[str, int, int] | None = None
-    for site in sorted(sites):
-        path, hunk, lineno = site
-        if previous is not None and (
-            path != previous[0] or hunk != previous[1] or lineno - previous[2] > BLOCK_GAP
-        ):
-            current += 1
-        block[site] = current
-        previous = site
-    return block
-
-
 def unacknowledged(found: list[tuple[str, int, str, str, int]]) -> list[tuple[str, int, str, str]]:
-    """Drop every finding whose block carries an acknowledgement, and shed the hunk tag."""
-    block = blocks_by_site({(path, hunk, lineno) for path, lineno, _r, _s, hunk in found})
+    """Drop every finding whose publication block carries an acknowledgement."""
     acknowledged = {
-        block[(path, hunk, lineno)]
-        for path, lineno, _r, _s, hunk in found
+        block
+        for path, lineno, _reason, _snippet, block in found
         if is_acknowledged(path, lineno)
     }
     return [
         (path, lineno, reason, snippet)
-        for path, lineno, reason, snippet, hunk in found
-        if block[(path, hunk, lineno)] not in acknowledged
+        for path, lineno, reason, snippet, block in found
+        if block not in acknowledged
     ]
 
 
 def scan(diff: str) -> list[tuple[str, int, str, str]]:
-    # Tagged with the hunk each finding came from; unacknowledged() groups on it, then sheds it.
+    # The final field identifies the publication block; unacknowledged() sheds it.
     found: list[tuple[str, int, str, str, int]] = []
     path: str | None = None
     hunk_added: list[tuple[int, str]] = []
-    hunk = 0
+    next_block = 0
+    active_publication: int | None = None
 
     def flush() -> None:
+        nonlocal active_publication, next_block
         if path is None or not hunk_added:
             return
 
-        for lineno, line in hunk_added:
-            for pattern, reason in PATTERNS:
+        active_publication = None  # A publication block never crosses an added hunk.
+        for index, (lineno, line) in enumerate(hunk_added):
+            for pattern_index, (pattern, reason) in enumerate(PATTERNS):
                 if pattern.search(line):
-                    found.append((path, lineno, reason, line.strip()[:120], hunk))
+                    if pattern_index == 0:
+                        next_block += 1  # Every publication opens a new block.
+                        active_publication = next_block
+                        finding_block = active_publication
+                    elif pattern_index == 1 and active_publication is not None:
+                        finding_block = active_publication
+                    else:
+                        next_block += 1
+                        finding_block = next_block
+                    found.append(
+                        (
+                            path,
+                            lineno,
+                            reason,
+                            line.strip()[:120],
+                            finding_block,
+                        )
+                    )
                     break
 
-        for index, (lineno, line) in enumerate(hunk_added):
             if not DIMENSION_NAME.search(line):
                 continue
             candidate = "\n".join(
                 added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
             )
             if DIMENSION_VALUE.search(candidate):
+                if active_publication is None:
+                    next_block += 1
+                    dimension_block = next_block
+                else:
+                    dimension_block = active_publication
                 found.append(
-                    (path, lineno, "adds a metric dimension entry", line.strip()[:120], hunk)
+                    (
+                        path,
+                        lineno,
+                        "adds a metric dimension entry",
+                        line.strip()[:120],
+                        dimension_block,
+                    )
                 )
 
     lineno = 0
@@ -138,12 +141,10 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
         if raw.startswith("+++ b/"):
             flush()
             hunk_added = []
-            hunk = 0
             path = raw[6:]
         elif raw.startswith("@@"):
             flush()
             hunk_added = []
-            hunk += 1
             match = re.search(r"\+(\d+)", raw)
             lineno = int(match.group(1)) if match else 0
         elif raw.startswith("+") and not raw.startswith("+++"):
@@ -187,8 +188,8 @@ def main() -> int:
         "\n    # metric-budget: 1 fleet series, paged on by <alarm name>"
         "\n"
         "\nOne note clears the whole publication it sits in -- the call and the dimensions"
-        "\nnested inside it -- so findings no more than six lines apart in the same edit need"
-        "\nonly one note between them. Publications added separately each need their own."
+        "\nnested inside it -- regardless of how many fields the payload carries. The next"
+        "\npublication, or a separate edit, needs its own note."
     )
     return 1
 
