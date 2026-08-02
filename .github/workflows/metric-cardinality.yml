@@ -38,7 +38,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check added metric cardinality
-        uses: nateyoder/infra-workflows/.github/actions/metric-cardinality@087da8d7a68bcf2d72ba0cff7674198f53df18cc
+        uses: nateyoder/infra-workflows/.github/actions/metric-cardinality@15fa16aaaf4effa2b9db001adece83ec1d57ed18
         with:
           paths: ${{ inputs.paths }}
           base-ref: ${{ inputs.base-ref || github.event.pull_request.base.ref || 'main' }}

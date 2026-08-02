@@ -86,15 +86,15 @@ require_count 2 'if [ -d "${{ inputs.tests-path }}" ] && { [ -z "$src_real" ] ||
 
 # The reusable execution chain is immutable and uses the declared uv version.
 forbid '@v1'
-require_count 2 'nateyoder/infra-workflows/.github/actions/setup-python-env@0076db537cd191196315883c8838891e94cf587b'
+require_count 2 'nateyoder/infra-workflows/.github/actions/setup-python-env@'
 require_file .github/actions/setup-python-env/action.yml 'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7'
-require_file .github/actions/setup-python-env/action.yml 'nateyoder/infra-workflows/.github/actions/checkout-editable-deps@a326b975a3ea40c809ad1d9e46b2cab584445491'
+require_file .github/actions/setup-python-env/action.yml 'nateyoder/infra-workflows/.github/actions/checkout-editable-deps@'
 require_file .github/actions/setup-python-env/action.yml 'astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0'
 require_file .github/actions/setup-python-env/action.yml 'version: "0.11.28"'
 require_file .github/actions/setup-python-env/action.yml 'REPO_READ_TOKEN: ${{ inputs.repo-read-token }}'
 require_file .github/actions/setup-python-env/action.yml 'run: "$GITHUB_ACTION_PATH/install-dependencies.sh"'
 require_file .github/workflows/metric-cardinality.yml 'actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7'
-require_file .github/workflows/metric-cardinality.yml 'nateyoder/infra-workflows/.github/actions/metric-cardinality@087da8d7a68bcf2d72ba0cff7674198f53df18cc'
+require_file .github/workflows/metric-cardinality.yml 'nateyoder/infra-workflows/.github/actions/metric-cardinality@'
 
 metric_action=.github/actions/metric-cardinality/action.yml
 metric_script=$(sed -n 's|.*run: python3 "$GITHUB_ACTION_PATH/\(.*\)"|\1|p' "$metric_action")
