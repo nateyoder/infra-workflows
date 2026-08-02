@@ -108,7 +108,10 @@ build_post_merge_clone() {
   # A PR checkout is detached at a synthetic merge commit. Its branch history must not survive
   # into the squash-shaped clone, or the harness cannot catch branch-only commits.
   source_head=$(git -C "$repo_root" rev-parse HEAD)
-  if [ "$source_head" != "$base_head" ] \
+  local base_ref_head
+  base_ref_head=$(git -C "$repo_root" rev-parse --verify --quiet origin/main) \
+    || base_ref_head=
+  if [ -n "$base_ref_head" ] && [ "$source_head" != "$base_ref_head" ] \
     && git -C "$post_merge_clone" merge-base --is-ancestor "$source_head" HEAD 2>/dev/null; then
     echo "post-merge fixture unexpectedly retains the feature branch history" >&2
     return 1
