@@ -48,7 +48,7 @@ non-empty `Dimensions` list, a `{"Name": ..., "Value": ...}` dimension entry, a 
 metric name — and fails with an explanation of the cost model.
 
 It cannot know whether a metric is worth its cost. It only forces someone to say so in writing.
-To acknowledge, put a marker anywhere in the same hunk:
+To acknowledge, put a marker on the detected line or within three committed lines of it:
 
 ```python
 # metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
