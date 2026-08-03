@@ -35,10 +35,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
 METRIC_WORKFLOW = ".github/workflows/metric-cardinality.yml"
 PINS = ".github/scripts/verify-action-pins.py"
+FIXTURE_SHAS = ".github/scripts/verify-fixture-shas.py"
 S3_AUDIT = ".github/scripts/s3-request-audit.py"
 INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
+FIXTURE_SHA_SUITE = "tests/test-fixture-shas.sh"
 S3_AUDIT_SUITE = "tests/test-s3-request-audit.sh"
 INSTALL_SUITE = "tests/test-private-git-auth.sh"
 
@@ -133,6 +135,25 @@ CASES = [
      "        available, detail = ensure_commit(ref)", '        available, detail = (True, "")'),
     ("errors fail the run", "pins", PINS_SUITE, PINS, "if errors:", "if False:"),
 
+    # Fixture SHA checker. The two directions of the "is it a commit here" test are separate
+    # cases because different fixtures hold them: dropping it lets hard-coded history through,
+    # and inverting it condemns every third-party pin a fixture legitimately names.
+    ("hex literals are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b", re.IGNORECASE)',
+     'HEX = re.compile(r"(?!x)x")'),
+    ("uppercase hex literals are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b", re.IGNORECASE)',
+     'HEX = re.compile(r"\\b[0-9a-f]{7,40}\\b")'),
+    ("local commits are rejected", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
+     "    return False"),
+    ("foreign hex is left alone", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
+     "    return True"),
+    ("nested fixture files are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     "for path in FIXTURE_ROOT.rglob(\"*\")", "for path in FIXTURE_ROOT.glob(\"*\")"),
+    ("fixture SHA errors fail the run", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
+     "if errors:", "if False:"),
     # S3 request-attribution audit safety guards.
     ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
      "for index, source in enumerate(source_states):",
