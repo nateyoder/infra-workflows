@@ -190,8 +190,14 @@ CASES = [
      "        for path in ()"),
     # And the requirement that keeps the four cases above alive: drop COVERED_HELPERS from the
     # comparison and every one of them could be deleted with the build still green.
+    #
+    # A case whose target is this file must never spell its `old` string contiguously, because
+    # `run_case` replaces the first match and the first match would be the case itself -- which
+    # mutates the table and leaves the code untouched, so the case passes while proving nothing.
+    # Splitting the literal keeps the text out of the source; both HARNESS cases do it.
     ("shared helpers keep their cases", "discovery", DISCOVERY_SUITE, HARNESS,
-     '(("guard", guard_scripts()), ("shared helper", COVERED_HELPERS))',
+     '(("guard", guard_scripts()), '
+     '("shared helper", COVERED_HELPERS))',
      '(("guard", guard_scripts()),)'),
     # S3 request-attribution audit safety guards.
     ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
