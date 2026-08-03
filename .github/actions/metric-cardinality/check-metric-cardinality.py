@@ -82,22 +82,57 @@ def is_acknowledged(path: str, lineno: int) -> bool:
     return ACK.search("\n".join(lines[start:end])) is not None
 
 
+def unacknowledged(found: list[tuple[str, int, str, str, int]]) -> list[tuple[str, int, str, str]]:
+    """Drop every finding whose publication block carries an acknowledgement."""
+    acknowledged = {
+        block
+        for path, lineno, _reason, _snippet, block in found
+        if is_acknowledged(path, lineno)
+    }
+    return [
+        (path, lineno, reason, snippet)
+        for path, lineno, reason, snippet, block in found
+        if block not in acknowledged
+    ]
+
+
 def scan(diff: str) -> list[tuple[str, int, str, str]]:
-    findings: list[tuple[str, int, str, str]] = []
+    # The final field identifies the publication block; unacknowledged() sheds it.
+    found: list[tuple[str, int, str, str, int]] = []
     path: str | None = None
     hunk_added: list[tuple[int, str]] = []
+    next_block = 0
+    active_publication: int | None = None
 
     def flush() -> None:
+        nonlocal active_publication, next_block
         if path is None or not hunk_added:
             return
 
-        for lineno, line in hunk_added:
-            for pattern, reason in PATTERNS:
+        active_publication = None  # A publication block never crosses an added hunk.
+        for index, (lineno, line) in enumerate(hunk_added):
+            for pattern_index, (pattern, reason) in enumerate(PATTERNS):
                 if pattern.search(line):
-                    findings.append((path, lineno, reason, line.strip()[:120]))
+                    if pattern_index == 0:
+                        next_block += 1  # Every publication opens a new block.
+                        active_publication = next_block
+                        finding_block = active_publication
+                    elif pattern_index == 1 and active_publication is not None:
+                        finding_block = active_publication
+                    else:
+                        next_block += 1
+                        finding_block = next_block
+                    found.append(
+                        (
+                            path,
+                            lineno,
+                            reason,
+                            line.strip()[:120],
+                            finding_block,
+                        )
+                    )
                     break
 
-        for index, (lineno, line) in enumerate(hunk_added):
             if not DIMENSION_NAME.search(line):
                 candidate = "\n".join(
                     added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
@@ -107,15 +142,39 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
                     and not CLI_DIMENSION.search(line)
                     and CLI_DIMENSION.search(candidate)
                 ):
-                    findings.append(
-                        (path, lineno, "adds an AWS CLI metric dimension", line.strip()[:120])
+                    if active_publication is None:
+                        next_block += 1
+                        cli_block = next_block
+                    else:
+                        cli_block = active_publication
+                    found.append(
+                        (
+                            path,
+                            lineno,
+                            "adds an AWS CLI metric dimension",
+                            line.strip()[:120],
+                            cli_block,
+                        )
                     )
                 continue
             candidate = "\n".join(
                 added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
             )
             if DIMENSION_VALUE.search(candidate):
-                findings.append((path, lineno, "adds a metric dimension entry", line.strip()[:120]))
+                if active_publication is None:
+                    next_block += 1
+                    dimension_block = next_block
+                else:
+                    dimension_block = active_publication
+                found.append(
+                    (
+                        path,
+                        lineno,
+                        "adds a metric dimension entry",
+                        line.strip()[:120],
+                        dimension_block,
+                    )
+                )
 
     lineno = 0
     for raw in diff.splitlines():
@@ -135,7 +194,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
             lineno += 1
     flush()
 
-    return [finding for finding in findings if not is_acknowledged(finding[0], finding[1])]
+    return unacknowledged(found)
 
 
 def main() -> int:
@@ -164,8 +223,13 @@ def main() -> int:
         "\nfor $0.005/GB scanned and can group by any field, including ones too"
         "\nhigh-cardinality to ever be a dimension."
         "\n"
-        "\nIf the cost is intended, say so on the added line or a nearby committed line:"
+        "\nIf the cost is intended, say so on the added line or within three committed lines"
+        "\nof it:"
         "\n    # metric-budget: 1 fleet series, paged on by <alarm name>"
+        "\n"
+        "\nOne note clears the whole publication it sits in -- the call and the dimensions"
+        "\nnested inside it -- regardless of how many fields the payload carries. The next"
+        "\npublication, or a separate edit, needs its own note."
     )
     return 1
 

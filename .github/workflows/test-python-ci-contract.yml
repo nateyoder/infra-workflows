@@ -19,6 +19,7 @@ jobs:
       - run: bash tests/test-action-pins.sh
       # Catches a fixture that borrows a commit from history instead of building its own.
       - run: bash tests/test-fixture-shas.sh
+      - run: bash tests/test-s3-request-audit.sh
       # Proves the suites above fail when the guards they cover stop working.
       - run: bash tests/test-mutations.sh
       # Runs them again on a squash-merged checkout, where three defects have hidden before.

@@ -6,6 +6,56 @@ This repository contains reusable GitHub Actions workflows for continuous integr
 
 ## Available Workflows
 
+### 🪣 Bounded S3 request-attribution audit
+
+Issue-driven FinOps investigations can use `.github/scripts/s3-request-audit.py` to arm a
+temporary S3 server-access-log sample. The checked-in configuration is restricted to the four
+reviewed `us-east-2` source buckets. Setup creates a dedicated private SSE-S3 destination with a
+seven-day lifecycle, records the existing logging and tag state, and creates one-time EventBridge
+Scheduler operations that enable logging at UTC midnight and restore every prior configuration
+exactly 48 hours later. No process or CI runner sleeps for the sample window.
+
+Validate the reviewed cost and safety bounds without contacting AWS:
+
+```bash
+python3 .github/scripts/s3-request-audit.py validate \
+  --config audits/s3-request-attribution.json
+```
+
+Arm a future sample (the default start is the next UTC midnight):
+
+```bash
+python3 .github/scripts/s3-request-audit.py start \
+  --config audits/s3-request-attribution.json \
+  --state .audit-state/s3-request-attribution.json
+```
+
+The state file contains the prior configurations and exact immutable per-source prefixes. Keep it
+sensitive; setup also writes a versioned, SSE-S3 copy beneath the audit prefix. After the end time
+and S3 delivery lag, verify teardown, retry activation of cost-allocation tags that were not yet
+visible to Billing, and produce aggregate-only reports:
+
+```bash
+python3 .github/scripts/s3-request-audit.py verify-teardown \
+  --state .audit-state/s3-request-attribution.json
+python3 .github/scripts/s3-request-audit.py activate-tags \
+  --state .audit-state/s3-request-attribution.json
+python3 .github/scripts/s3-request-audit.py report \
+  --state .audit-state/s3-request-attribution.json \
+  --json-out s3-request-attribution.json \
+  --markdown-out s3-request-attribution.md
+python3 .github/scripts/s3-request-audit.py file-followups \
+  --report s3-request-attribution.json \
+  --output s3-request-followups.json
+```
+
+The report never emits object keys, requester identities, IPs, user agents, or raw records. It
+groups requests by bucket, operation family, and status; applies the observed effective Tier 1/2
+rates; reconciles the same complete UTC dates with Cost Explorer; and states why best-effort
+access logs are not ledger-exact. `file-followups` creates or updates one aggregate-only issue in
+each owning repository when the reviewed monthly materiality threshold is crossed. If the logs do
+not identify a dominant source, stop and seek separate approval for a CloudTrail data-event sample.
+
 ### 🐍 Python CI (`python-ci.yml`)
 
 A comprehensive, `uv`-powered continuous integration workflow for Python applications. It runs tests with coverage reporting, enforces linting, and checks types.
@@ -58,6 +108,26 @@ To acknowledge, put a marker on the detected line or within three committed line
 ```python
 # metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
 ```
+
+One marker clears the whole publication it sits in — the call and the `Dimensions` nested inside
+it — regardless of how many fields the payload carries. The next publication, or a separate edit,
+needs its own marker:
+
+```python
+# metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+```
+
+Adjacency is measured in the diff, so publications added as separate edits each need their own
+marker even when they end up close together in the file.
 
 If a value is only read while debugging, prefer a log line: Logs Insights queries it for
 $0.005/GB scanned and can group by fields far too high-cardinality to be a dimension.

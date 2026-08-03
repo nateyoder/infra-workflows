@@ -36,10 +36,12 @@ SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
 METRIC_WORKFLOW = ".github/workflows/metric-cardinality.yml"
 PINS = ".github/scripts/verify-action-pins.py"
 FIXTURE_SHAS = ".github/scripts/verify-fixture-shas.py"
+S3_AUDIT = ".github/scripts/s3-request-audit.py"
 INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
 FIXTURE_SHA_SUITE = "tests/test-fixture-shas.sh"
+S3_AUDIT_SUITE = "tests/test-s3-request-audit.sh"
 INSTALL_SUITE = "tests/test-private-git-auth.sh"
 
 # Guards live here; every script under it must be covered. Found rather than declared, so the
@@ -87,6 +89,21 @@ CASES = [
      'ACK = re.compile(r"metric-budget:\\s*\\S", re.IGNORECASE)', 'ACK = re.compile(r"(?!x)x")'),
     ("acknowledgement is local", "scanner", METRIC_SUITE, SCANNER,
      "ACK_RADIUS = 3", "ACK_RADIUS = 8"),
+    ("one note clears a whole publication", "scanner", METRIC_SUITE, SCANNER,
+     "elif pattern_index == 1 and active_publication is not None:", "elif False:"),
+    ("a block stops at the next publication", "scanner", METRIC_SUITE, SCANNER,
+     "next_block += 1  # Every publication opens a new block.",
+     "next_block += active_publication is None  # Reuse the prior publication's block."),
+    ("blocks do not span separate edits", "scanner", METRIC_SUITE, SCANNER,
+     "active_publication = None  # A publication block never crosses an added hunk.",
+     "pass  # Keep the preceding hunk's publication active."),
+    ("a bare dimension opens its own block", "scanner", METRIC_SUITE, SCANNER,
+     """if active_publication is None:
+                    next_block += 1
+                    dimension_block = next_block
+                else:
+                    dimension_block = active_publication""",
+     "dimension_block = next_block  # Reuse the prior finding's block."),
     ("only added lines are scanned", "scanner", METRIC_SUITE, SCANNER,
      'elif raw.startswith("+") and not raw.startswith("+++"):',
      'elif raw[:1] in "+-" and not raw.startswith(("+++", "---")):'),
@@ -137,6 +154,27 @@ CASES = [
      "for path in FIXTURE_ROOT.rglob(\"*\")", "for path in FIXTURE_ROOT.glob(\"*\")"),
     ("fixture SHA errors fail the run", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      "if errors:", "if False:"),
+    # S3 request-attribution audit safety guards.
+    ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "for index, source in enumerate(source_states):",
+     "for index, source in enumerate([]):"),
+    ("sample window has setup margin", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "if starts_at < now + dt.timedelta(minutes=15):", "if False:"),
+    ("destination blocks public access", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "if not all(public.get(key) for key in (\"BlockPublicAcls\", \"IgnorePublicAcls\", \"BlockPublicPolicy\", \"RestrictPublicBuckets\")):",
+     "if False:"),
+    ("teardown rejects recursive logging", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if enabled.get("TargetBucket") == destination:', "if False:"),
+    ("expected audit volume fits hard cap", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if expected_bytes > config["max_log_bytes"]:', "if False:"),
+    ("schedule execution time is verified", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if actual.get("ScheduleExpression") != expression:', "if False:"),
+    ("schedule input and state are verified", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if actual_input != expected_input or actual.get("State") != "ENABLED":', "if False:"),
+    ("retrieved log volume stays under the hard cap", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if total_bytes > state["max_log_bytes"]:', "if False:"),
+    ("retrieval cost stays under the audit budget", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if projected_cost >= state["budget_usd"]:', "if False:"),
     # Dependency installer. Guard discovery found this one uncovered: it decides whether a failed
     # `uv` run is a missing credential or a stale lockfile, and every branch of that decision
     # reaches a developer as an error message telling them what to go fix.
