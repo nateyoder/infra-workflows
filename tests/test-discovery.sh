@@ -62,4 +62,44 @@ git -C "$scratch/yaml-fixture" add tests/fixtures/pin.yml
 expect_discovered yaml-fixture 'tests/fixtures/pin.yml' \
   python3 .github/scripts/verify-fixture-shas.py
 
-echo "Discovery finds guards by shape and fixtures by content."
+# Shape is not a superset of suffix, and this is the direction that matters: three guards here are
+# mode 644, so a shebang line CI never needs is the only thing holding them in the set. Deleting
+# one used to drop a live guard out of coverage with every suite still green (PR #26 R1-F1).
+git clone -q --shared "$repo_root" "$scratch/shrunk-guard-set"
+python3 - "$scratch/shrunk-guard-set/.github/scripts/verify-action-pins.py" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+if not source.startswith("#!"):
+    raise SystemExit("this guard no longer opens with a shebang; update the fixture")
+path.write_text(source.split("\n", 1)[1], encoding="utf-8")
+PYTHON
+git -C "$scratch/shrunk-guard-set" add .github/scripts/verify-action-pins.py
+expect_discovered shrunk-guard-set \
+  'verify-action-pins.py: reads as a guard by name but has neither an executable bit nor a shebang' \
+  python3 tests/mutation-cases.py --checks-only
+
+# A shared helper decides what the guards can see, so it carries a guard's file-level coverage
+# requirement even though discovery leaves it out of the guard set. Without that, every case
+# covering the helper could be deleted and the build would stay green (PR #26 R1-F2).
+git clone -q --shared "$repo_root" "$scratch/uncovered-helper"
+python3 - "$scratch/uncovered-helper/tests/mutation-cases.py" <<'PYTHON'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+source = path.read_text(encoding="utf-8")
+start = source.find("    # Shared discovery.")
+end = source.find("    # S3 request-attribution audit safety guards.")
+if start < 0 or end < start:
+    raise SystemExit("the discovery case block this fixture deletes has moved; update the fixture")
+path.write_text(source[:start] + source[end:], encoding="utf-8")
+PYTHON
+git -C "$scratch/uncovered-helper" add tests/mutation-cases.py
+expect_discovered uncovered-helper \
+  'discovery.py: no mutation case breaks this shared helper' \
+  python3 tests/mutation-cases.py --checks-only
+
+echo "Discovery finds guards by shape and fixtures by content, and cannot quietly see less."

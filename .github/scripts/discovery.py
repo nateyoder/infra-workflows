@@ -20,18 +20,32 @@ untracked scratch sitting beside the real thing should not fail anyone's check.
 This module is deliberately not a script -- no `#!`, no executable bit -- because it decides
 nothing on its own. That keeps it out of `is_script`, and so out of the guard set the mutation
 harness demands a case for. Its branches are covered instead by the discovery cases in
-`tests/mutation-cases.py`, one per branch.
+`tests/mutation-cases.py`, one per branch, and the harness names it in `COVERED_HELPERS` so that
+exemption is a decision on the page rather than an accident of the shebang it lacks.
+
+Shape is not a superset of suffix, so `undiscovered_scripts` guards the switch itself: a `.py` or
+`.sh` file the old predicate would have found and this one does not is a coverage shrink, and the
+caller fails on it instead of quietly seeing less.
 """
 
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterable
 from pathlib import Path
 
 
 # Enough of a file to meet a NUL byte in if there is one; git reads a comparable prefix to decide
 # the same question.
 TEXT_PROBE_BYTES = 8000
+
+# What the guard predicate used to be. A shape predicate is not a superset of a suffix one: three
+# of this repository's five guards are mode 644 and held in the set by a shebang line alone, and
+# deleting that decorative line drops the guard out of coverage while every suite stays green
+# (PR #26 R1-F1). Widening discovery is safe; narrowing it is the silent shrink #23 exists to
+# remove. So this stays, not as a filter that decides what is discovered, but as the assertion
+# that the switch never discovers less -- see `undiscovered_scripts`.
+LEGACY_SCRIPT_SUFFIXES = (".py", ".sh")
 
 
 def tracked_files(repo_root: Path, subdir: str) -> list[Path]:
@@ -66,6 +80,27 @@ def is_text(path: Path) -> bool:
 def scripts_under(repo_root: Path, subdir: str) -> list[Path]:
     """Every tracked script under `subdir`."""
     return [path for path in tracked_files(repo_root, subdir) if is_script(path)]
+
+
+def undiscovered_scripts(
+    repo_root: Path, subdir: str, exempt: Iterable[str] = ()
+) -> list[Path]:
+    """Files the suffix predicate would have found under `subdir` that `is_script` does not.
+
+    Empty is the invariant, and the only reason `LEGACY_SCRIPT_SUFFIXES` still exists. Discovery
+    replacing a list is only an improvement while it sees at least as much; a caller that reports
+    these turns a silent shrink into a failure it has to answer for. `exempt` names the files a
+    caller has decided are not its business, so that exclusion is a stated decision rather than a
+    side effect of the file happening to lack a shebang.
+    """
+    exempted = {repo_root / name for name in exempt}
+    return [
+        path
+        for path in tracked_files(repo_root, subdir)
+        if path.suffix in LEGACY_SCRIPT_SUFFIXES
+        and path not in exempted
+        and not is_script(path)
+    ]
 
 
 def text_files_under(repo_root: Path, subdir: str) -> list[Path]:
