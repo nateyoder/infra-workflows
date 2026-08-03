@@ -14,6 +14,9 @@ is inert here and stays allowed; anything git can resolve to a local commit is n
 
 Fixtures should build the commit they need and read its SHA back, so the case carries its own
 object instead of borrowing one from history.
+
+A fixture is any tracked text file under `tests/`, found by `discovery.py`. It used to be any
+`.sh` or `.py` one, which let a `.yml` fixture hard-code a commit and still report success.
 """
 
 from __future__ import annotations
@@ -24,9 +27,15 @@ import sys
 from pathlib import Path
 
 
+# Running this file by path already puts its directory first on sys.path; say so anyway, so the
+# import does not depend on how the checker was invoked.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from discovery import text_files_under  # noqa: E402
+
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_ROOT = REPO_ROOT / "tests"
-FIXTURE_SUFFIXES = (".sh", ".py")
+FIXTURE_ROOT = "tests"
 HEX = re.compile(r"\b[0-9a-f]{7,40}\b", re.IGNORECASE)
 
 
@@ -44,19 +53,14 @@ def names_local_commit(candidate: str) -> bool:
     return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0
 
 
-def fixture_files() -> list[Path]:
-    return sorted(
-        path
-        for path in FIXTURE_ROOT.rglob("*")
-        if path.is_file() and path.suffix in FIXTURE_SUFFIXES
-    )
-
-
 def main() -> int:
     errors: list[str] = []
     checked = 0
+    # Every fixture a literal can be read out of, whatever it is written in. A suffix list here
+    # would go stale exactly the way the fixtures it guards do (issue #23).
+    fixtures = text_files_under(REPO_ROOT, FIXTURE_ROOT)
 
-    for path in fixture_files():
+    for path in fixtures:
         location = path.relative_to(REPO_ROOT).as_posix()
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             for candidate in HEX.findall(line):
@@ -80,7 +84,7 @@ def main() -> int:
         )
         return 1
 
-    print(f"Checked {checked} hex literal(s) across {len(fixture_files())} fixture files.")
+    print(f"Checked {checked} hex literal(s) across {len(fixtures)} fixture files.")
     return 0
 
 

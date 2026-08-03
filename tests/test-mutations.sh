@@ -29,9 +29,11 @@ expect_coverage_failure() {
 }
 
 # A guard script can be added under .github/ tomorrow; nothing used to require covering it.
+# Committed, because discovery walks the index: a guard git does not track is not shipped.
 git clone -q --shared "$repo_root" "$scratch/new-guard"
 printf '#!/usr/bin/env python3\nraise SystemExit(0)\n' \
   >"$scratch/new-guard/.github/scripts/verify-nothing.py"
+git -C "$scratch/new-guard" add .github/scripts/verify-nothing.py
 expect_coverage_failure new-guard 'no mutation case breaks this guard'
 
 # A new detector alternative must arrive with the case that disables it.

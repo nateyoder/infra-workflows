@@ -38,16 +38,26 @@ PINS = ".github/scripts/verify-action-pins.py"
 FIXTURE_SHAS = ".github/scripts/verify-fixture-shas.py"
 S3_AUDIT = ".github/scripts/s3-request-audit.py"
 INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
+DISCOVERY = ".github/scripts/discovery.py"
+HARNESS = "tests/mutation-cases.py"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
 FIXTURE_SHA_SUITE = "tests/test-fixture-shas.sh"
 S3_AUDIT_SUITE = "tests/test-s3-request-audit.sh"
 INSTALL_SUITE = "tests/test-private-git-auth.sh"
+DISCOVERY_SUITE = "tests/test-discovery.sh"
 
-# Guards live here; every script under it must be covered. Found rather than declared, so the
-# list cannot silently fall behind the repository.
+# Guards live here; every script under it must be covered. Found rather than declared -- and
+# recognised by shape rather than by suffix, because a suffix tuple is the same hand-maintained
+# list one rung up and went stale the same way (issue #23).
 GUARD_ROOT = ".github"
-GUARD_SUFFIXES = (".py", ".sh")
+
+# Shared helpers under GUARD_ROOT that reach no verdict of their own, so guard discovery leaves
+# them out of the set above. Naming them does two things the accident of a missing shebang did
+# not: the exemption becomes reviewable when a second helper arrives, and -- because these decide
+# what the guards can *see* -- they carry the same file-level coverage requirement a guard does,
+# so the cases below cannot quietly be deleted (PR #26 R1-F2).
+COVERED_HELPERS = (DISCOVERY,)
 
 # (label, kind, suite, file, old, new). `kind` is "detector" for one alternative of a
 # metric-cardinality detector; those are matched against the scanner's alternatives below.
@@ -150,10 +160,45 @@ CASES = [
     ("foreign hex is left alone", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
      "    return True"),
-    ("nested fixture files are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
-     "for path in FIXTURE_ROOT.rglob(\"*\")", "for path in FIXTURE_ROOT.glob(\"*\")"),
     ("fixture SHA errors fail the run", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      "if errors:", "if False:"),
+
+    # Shared discovery. Not a guard itself -- it reaches no verdict, so `is_script` leaves it out
+    # of the set above -- but each of its branches decides what one of the two checks can see, so
+    # each gets the case that removes it. The suffix tuples the mutations reinstate are the exact
+    # shape this replaced (issue #23); a narrowing that silently shrinks coverage now fails here.
+    ("guards are found by their executable bit", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     "    if path.stat().st_mode & 0o111:", "    if False:"),
+    ("guards are found by their shebang", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     '        return handle.read(2) == b"#!"', '        return path.suffix in (".py", ".sh")'),
+    ("fixtures are found by content, not suffix", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     '        return b"\\0" not in handle.read(TEXT_PROBE_BYTES)',
+     '        return path.suffix in (".py", ".sh")'),
+    # Nested files used to be a decision of the fixture checker's own; it is `git ls-files` now,
+    # and this is the pathspec that would stop it recursing. tests/lib holds the fixture.
+    ("discovery recurses into subdirectories", "discovery", FIXTURE_SHA_SUITE, DISCOVERY,
+     '"git", "ls-files", "-z", "--", subdir',
+     '"git", "ls-files", "-z", "--", f":(glob){subdir}/*"'),
+    # The two halves of "the switch to shape never sees less": the helper has to report what the
+    # old predicate would have found, and the harness has to fail on it. Shape is not a superset
+    # of suffix, so without these a decorative shebang is all that holds a guard in coverage.
+    ("a shrunk guard set is reported", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     "        if path.suffix in LEGACY_SCRIPT_SUFFIXES", "        if False"),
+    ("a shrunk guard set fails the run", "discovery", DISCOVERY_SUITE, HARNESS,
+     "        for path in load_discovery().undiscovered_scripts("
+     "REPO_ROOT, GUARD_ROOT, COVERED_HELPERS)",
+     "        for path in ()"),
+    # And the requirement that keeps the four cases above alive: drop COVERED_HELPERS from the
+    # comparison and every one of them could be deleted with the build still green.
+    #
+    # A case whose target is this file must never spell its `old` string contiguously, because
+    # `run_case` replaces the first match and the first match would be the case itself -- which
+    # mutates the table and leaves the code untouched, so the case passes while proving nothing.
+    # Splitting the literal keeps the text out of the source; both HARNESS cases do it.
+    ("shared helpers keep their cases", "discovery", DISCOVERY_SUITE, HARNESS,
+     '(("guard", guard_scripts()), '
+     '("shared helper", COVERED_HELPERS))',
+     '(("guard", guard_scripts()),)'),
     # S3 request-attribution audit safety guards.
     ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
      "for index, source in enumerate(source_states):",
@@ -268,13 +313,20 @@ def check_detector_coverage() -> list[str]:
     return errors
 
 
+def load_discovery():
+    """The shared discovery helper. Loaded by path: it ships beside the guards, not on sys.path."""
+    spec = importlib.util.spec_from_file_location("discovery", REPO_ROOT / DISCOVERY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def guard_scripts() -> list[str]:
     """Every guard script shipped under .github/, found rather than declared."""
-    return sorted(
+    return [
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / GUARD_ROOT).rglob("*")
-        if path.is_file() and path.suffix in GUARD_SUFFIXES
-    )
+        for path in load_discovery().scripts_under(REPO_ROOT, GUARD_ROOT)
+    ]
 
 
 def check_guard_coverage() -> list[str]:
@@ -283,12 +335,25 @@ def check_guard_coverage() -> list[str]:
     The table used to name its guards and nothing else, so a third one could be added tomorrow,
     ship a pass/fail decision, and never be mutated. Discovering them from the tree instead means
     the omission fails the build rather than waiting to be noticed in review.
+
+    Discovery by shape sees things a suffix list could not, but it is not a superset of one: three
+    guards here are mode 644 and held in the set by a shebang that CI does not need, so deleting
+    that line used to drop a live guard out of coverage with every suite still green. Anything the
+    old predicate would have found and this one does not is reported before the coverage check
+    itself, because a set that quietly got smaller makes the rest of this meaningless.
     """
     mutated = {case[3] for case in CASES}
-    return [
-        f"{guard}: no mutation case breaks this guard, so nothing proves a suite would notice"
-        for guard in guard_scripts()
-        if guard not in mutated
+    errors = [
+        f"{path.relative_to(REPO_ROOT).as_posix()}: reads as a guard by name but has neither an "
+        f"executable bit nor a shebang, so discovery no longer finds it and its coverage would go "
+        f"quiet; give it one, or name it in COVERED_HELPERS if it decides nothing"
+        for path in load_discovery().undiscovered_scripts(REPO_ROOT, GUARD_ROOT, COVERED_HELPERS)
+    ]
+    return errors + [
+        f"{path}: no mutation case breaks this {role}, so nothing proves a suite would notice"
+        for role, paths in (("guard", guard_scripts()), ("shared helper", COVERED_HELPERS))
+        for path in paths
+        if path not in mutated
     ]
 
 
