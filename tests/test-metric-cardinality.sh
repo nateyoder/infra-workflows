@@ -192,6 +192,101 @@ cw.put_metric_data(Namespace="Recorder", MetricData=[{"Name": "DeploySha", "Valu
 PYTHON
 expect_fail "$repo" 'svc.py:7  publishes a metric directly'
 
+# An acknowledged non-publication finding must not clear a later bare dimension entry. Without
+# its own block, the deploy-SHA dimension would inherit the acknowledgement beyond ACK_RADIUS.
+repo=$(new_repo bare-dimension-opens-own-block)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 fleet series, paged on by RecorderDepthStall
+RECORDER_ALARM_BOUND = "book_depth"
+pad_a = 1
+pad_b = 2
+pad_c = 3
+pad_d = 4
+EXTRA_DIMS = [
+    {"Name": "deploy_sha", "Value": sha},
+]
+PYTHON
+expect_fail "$repo" 'svc.py:8  adds a metric dimension entry'
+
+# A realistic dimensioned boto3 datum: the call and dimensions are eight lines apart once the
+# API-required Value and ordinary Unit/Timestamp fields are present. Their shared publication,
+# rather than a tuned line gap, lets one note acknowledge both.
+repo=$(new_repo dimensioned-block-one-acknowledgement)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Unit": "Count",
+            "Value": depth,
+            "Timestamp": now,
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+PYTHON
+expect_pass "$repo"
+
+# The same block with no note at all still fails, on every line of it.
+repo=$(new_repo dimensioned-block-unacknowledged)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+PYTHON
+expect_fail "$repo" 'svc.py:6  adds a non-empty Dimensions list'
+
+# A chain of short gaps must not let one note flow through later publications. Every call opens a
+# new block even when the calls are closer than the old six-line threshold.
+repo=$(new_repo acknowledgement-block-is-bounded)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+# metric-budget: 1 fleet series, paged on by recorder-data-loss
+cw.put_metric_data(Namespace="Recorder")
+x = 1
+y = 2
+cw.put_metric_data(Namespace="RecorderV2")
+x = 3
+y = 4
+cw.put_metric_data(Namespace="RecorderV3")
+PYTHON
+expect_fail "$repo" 'svc.py:5  publishes a metric directly'
+
+# A nested dimension added in a later hunk cannot join a publication from an earlier edit.
+repo=$(new_repo acknowledgement-does-not-cross-edits)
+cat >"$repo/svc.py" <<'PYTHON'
+import os
+x = 1
+y = 2
+payload = {
+}
+print("tail")
+PYTHON
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+import os
+# metric-budget: 1 fleet series, paged on by recorder-data-loss
+cw.put_metric_data(Namespace="Recorder")
+x = 1
+y = 2
+payload = {
+    "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+}
+print("tail")
+PYTHON
+expect_fail "$repo" 'svc.py:7  adds a non-empty Dimensions list'
+
 repo=$(new_repo no-trailing-newline-acknowledged)
 printf '%s' '# metric-budget: 1 fleet series, paged on by recorder-data-loss
 

@@ -59,6 +59,26 @@ To acknowledge, put a marker on the detected line or within three committed line
 # metric-budget: 1 fleet series, paged on by pmkt-recorder-data-loss
 ```
 
+One marker clears the whole publication it sits in — the call and the `Dimensions` nested inside
+it — regardless of how many fields the payload carries. The next publication, or a separate edit,
+needs its own marker:
+
+```python
+# metric-budget: 1 series per recorder (~74), paged on by RecorderDepthStall
+cw.put_metric_data(
+    Namespace="xp/recorder",
+    MetricData=[
+        {
+            "MetricName": "book_depth",
+            "Dimensions": [{"Name": "recorder_id", "Value": rid}],
+        }
+    ],
+)
+```
+
+Adjacency is measured in the diff, so publications added as separate edits each need their own
+marker even when they end up close together in the file.
+
 If a value is only read while debugging, prefer a log line: Logs Insights queries it for
 $0.005/GB scanned and can group by fields far too high-cardinality to be a dimension.
 

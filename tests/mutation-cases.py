@@ -85,6 +85,21 @@ CASES = [
      'ACK = re.compile(r"metric-budget:\\s*\\S", re.IGNORECASE)', 'ACK = re.compile(r"(?!x)x")'),
     ("acknowledgement is local", "scanner", METRIC_SUITE, SCANNER,
      "ACK_RADIUS = 3", "ACK_RADIUS = 8"),
+    ("one note clears a whole publication", "scanner", METRIC_SUITE, SCANNER,
+     "elif pattern_index == 1 and active_publication is not None:", "elif False:"),
+    ("a block stops at the next publication", "scanner", METRIC_SUITE, SCANNER,
+     "next_block += 1  # Every publication opens a new block.",
+     "next_block += active_publication is None  # Reuse the prior publication's block."),
+    ("blocks do not span separate edits", "scanner", METRIC_SUITE, SCANNER,
+     "active_publication = None  # A publication block never crosses an added hunk.",
+     "pass  # Keep the preceding hunk's publication active."),
+    ("a bare dimension opens its own block", "scanner", METRIC_SUITE, SCANNER,
+     """if active_publication is None:
+                    next_block += 1
+                    dimension_block = next_block
+                else:
+                    dimension_block = active_publication""",
+     "dimension_block = next_block  # Reuse the prior finding's block."),
     ("only added lines are scanned", "scanner", METRIC_SUITE, SCANNER,
      'elif raw.startswith("+") and not raw.startswith("+++"):',
      'elif raw[:1] in "+-" and not raw.startswith(("+++", "---")):'),
