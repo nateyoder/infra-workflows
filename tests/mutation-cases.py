@@ -38,16 +38,18 @@ PINS = ".github/scripts/verify-action-pins.py"
 FIXTURE_SHAS = ".github/scripts/verify-fixture-shas.py"
 S3_AUDIT = ".github/scripts/s3-request-audit.py"
 INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
+DISCOVERY = ".github/scripts/discovery.py"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
 FIXTURE_SHA_SUITE = "tests/test-fixture-shas.sh"
 S3_AUDIT_SUITE = "tests/test-s3-request-audit.sh"
 INSTALL_SUITE = "tests/test-private-git-auth.sh"
+DISCOVERY_SUITE = "tests/test-discovery.sh"
 
-# Guards live here; every script under it must be covered. Found rather than declared, so the
-# list cannot silently fall behind the repository.
+# Guards live here; every script under it must be covered. Found rather than declared -- and
+# recognised by shape rather than by suffix, because a suffix tuple is the same hand-maintained
+# list one rung up and went stale the same way (issue #23).
 GUARD_ROOT = ".github"
-GUARD_SUFFIXES = (".py", ".sh")
 
 # (label, kind, suite, file, old, new). `kind` is "detector" for one alternative of a
 # metric-cardinality detector; those are matched against the scanner's alternatives below.
@@ -150,10 +152,25 @@ CASES = [
     ("foreign hex is left alone", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      '    return git("cat-file", "-e", f"{candidate}^{{commit}}").returncode == 0',
      "    return True"),
-    ("nested fixture files are scanned", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
-     "for path in FIXTURE_ROOT.rglob(\"*\")", "for path in FIXTURE_ROOT.glob(\"*\")"),
     ("fixture SHA errors fail the run", "fixtures", FIXTURE_SHA_SUITE, FIXTURE_SHAS,
      "if errors:", "if False:"),
+
+    # Shared discovery. Not a guard itself -- it reaches no verdict, so `is_script` leaves it out
+    # of the set above -- but each of its branches decides what one of the two checks can see, so
+    # each gets the case that removes it. The suffix tuples the mutations reinstate are the exact
+    # shape this replaced (issue #23); a narrowing that silently shrinks coverage now fails here.
+    ("guards are found by their executable bit", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     "    if path.stat().st_mode & 0o111:", "    if False:"),
+    ("guards are found by their shebang", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     '        return handle.read(2) == b"#!"', '        return path.suffix in (".py", ".sh")'),
+    ("fixtures are found by content, not suffix", "discovery", DISCOVERY_SUITE, DISCOVERY,
+     '        return b"\\0" not in handle.read(TEXT_PROBE_BYTES)',
+     '        return path.suffix in (".py", ".sh")'),
+    # Nested files used to be a decision of the fixture checker's own; it is `git ls-files` now,
+    # and this is the pathspec that would stop it recursing. tests/lib holds the fixture.
+    ("discovery recurses into subdirectories", "discovery", FIXTURE_SHA_SUITE, DISCOVERY,
+     '"git", "ls-files", "-z", "--", subdir',
+     '"git", "ls-files", "-z", "--", f":(glob){subdir}/*"'),
     # S3 request-attribution audit safety guards.
     ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
      "for index, source in enumerate(source_states):",
@@ -268,13 +285,20 @@ def check_detector_coverage() -> list[str]:
     return errors
 
 
+def load_discovery():
+    """The shared discovery helper. Loaded by path: it ships beside the guards, not on sys.path."""
+    spec = importlib.util.spec_from_file_location("discovery", REPO_ROOT / DISCOVERY)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def guard_scripts() -> list[str]:
     """Every guard script shipped under .github/, found rather than declared."""
-    return sorted(
+    return [
         path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / GUARD_ROOT).rglob("*")
-        if path.is_file() and path.suffix in GUARD_SUFFIXES
-    )
+        for path in load_discovery().scripts_under(REPO_ROOT, GUARD_ROOT)
+    ]
 
 
 def check_guard_coverage() -> list[str]:
