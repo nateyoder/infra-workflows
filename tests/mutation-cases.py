@@ -35,9 +35,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNER = ".github/actions/metric-cardinality/check-metric-cardinality.py"
 METRIC_WORKFLOW = ".github/workflows/metric-cardinality.yml"
 PINS = ".github/scripts/verify-action-pins.py"
+S3_AUDIT = ".github/scripts/s3-request-audit.py"
 INSTALL = ".github/actions/setup-python-env/install-dependencies.sh"
 METRIC_SUITE = "tests/test-metric-cardinality.sh"
 PINS_SUITE = "tests/test-action-pins.sh"
+S3_AUDIT_SUITE = "tests/test-s3-request-audit.sh"
 INSTALL_SUITE = "tests/test-private-git-auth.sh"
 
 # Guards live here; every script under it must be covered. Found rather than declared, so the
@@ -131,6 +133,27 @@ CASES = [
      "        available, detail = ensure_commit(ref)", '        available, detail = (True, "")'),
     ("errors fail the run", "pins", PINS_SUITE, PINS, "if errors:", "if False:"),
 
+    # S3 request-attribution audit safety guards.
+    ("restore schedules precede enable schedules", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "for index, source in enumerate(source_states):",
+     "for index, source in enumerate([]):"),
+    ("sample window has setup margin", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "if starts_at < now + dt.timedelta(minutes=15):", "if False:"),
+    ("destination blocks public access", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     "if not all(public.get(key) for key in (\"BlockPublicAcls\", \"IgnorePublicAcls\", \"BlockPublicPolicy\", \"RestrictPublicBuckets\")):",
+     "if False:"),
+    ("teardown rejects recursive logging", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if enabled.get("TargetBucket") == destination:', "if False:"),
+    ("expected audit volume fits hard cap", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if expected_bytes > config["max_log_bytes"]:', "if False:"),
+    ("schedule execution time is verified", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if actual.get("ScheduleExpression") != expression:', "if False:"),
+    ("schedule input and state are verified", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if actual_input != expected_input or actual.get("State") != "ENABLED":', "if False:"),
+    ("retrieved log volume stays under the hard cap", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if total_bytes > state["max_log_bytes"]:', "if False:"),
+    ("retrieval cost stays under the audit budget", "s3-audit", S3_AUDIT_SUITE, S3_AUDIT,
+     'if projected_cost >= state["budget_usd"]:', "if False:"),
     # Dependency installer. Guard discovery found this one uncovered: it decides whether a failed
     # `uv` run is a missing credential or a stale lockfile, and every branch of that decision
     # reaches a developer as an error message telling them what to go fix.

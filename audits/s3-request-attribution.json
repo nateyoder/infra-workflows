@@ -1,0 +1,61 @@
+{
+  "account_id": "303529433772",
+  "region": "us-east-2",
+  "sample_hours": 48,
+  "retention_days": 7,
+  "budget_usd": 1.0,
+  "material_monthly_cost_usd": 5.0,
+  "max_log_bytes": 5368709120,
+  "estimated_log_bytes_per_request": 600,
+  "observed_requests_per_week": 5246030,
+  "storage_usd_per_gb_month": 0.023,
+  "cost_explorer_query_usd": 0.01,
+  "effective_request_rates": {
+    "tier1_per_request_usd": 0.0000049977,
+    "tier2_per_request_usd": 0.0000004000011,
+    "source_window_start": "2026-07-26",
+    "source_window_end": "2026-08-02"
+  },
+  "sources": [
+    {
+      "bucket": "kalshi-weather-evidence-303529433772-us-east-2",
+      "prefix": "kalshi-weather-evidence",
+      "tags": {
+        "Project": "kalshi_weather",
+        "Repository": "nateyoder/kalshi_weather",
+        "Environment": "production",
+        "Owner": "nateyoder"
+      }
+    },
+    {
+      "bucket": "kalshi-weather-madis-hfmetar-303529433772-us-east-2",
+      "prefix": "kalshi-weather-madis-hfmetar",
+      "tags": {
+        "Project": "kalshi_weather",
+        "Repository": "nateyoder/kalshi_weather",
+        "Environment": "production",
+        "Owner": "nateyoder"
+      }
+    },
+    {
+      "bucket": "kalshi-weather-pipeline-303529433772-us-east-2",
+      "prefix": "kalshi-weather-pipeline",
+      "tags": {
+        "Project": "kalshi_weather",
+        "Repository": "nateyoder/kalshi_weather",
+        "Environment": "production",
+        "Owner": "nateyoder"
+      }
+    },
+    {
+      "bucket": "pmkt-recorder-v21-canary-303529433772-us-east-2",
+      "prefix": "pmkt-recorder-v21-canary",
+      "tags": {
+        "Project": "pmkt-clients",
+        "Repository": "nateyoder/pmkt-clients",
+        "Environment": "canary",
+        "Owner": "nateyoder"
+      }
+    }
+  ]
+}
