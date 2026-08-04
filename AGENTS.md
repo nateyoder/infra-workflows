@@ -14,7 +14,3 @@ readability for brevity.
   tree. Commit a new guard, suite, or fixture before running the checks over it, or they test the
   state before your change and report success. A fixture that *invents* a file rather than editing
   a tracked one must `git add` it, because discovery walks `git ls-files`.
-- Two branches that pass separately can fail merged, and `git merge` surfaces only textual
-  conflicts. When two PRs touch the same function or the same enforcement surface, merge them and
-  run the committed suites on the merge result — after committing the merge — before treating them
-  as independent.
