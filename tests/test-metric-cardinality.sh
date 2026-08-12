@@ -210,6 +210,12 @@ expect_fail "$repo" 'svc.py:7  publishes a metric directly'
 # An acknowledged non-publication finding must not clear a later bare dimension entry. Without
 # its own block, the deploy-SHA dimension would inherit the acknowledgement beyond ACK_RADIUS.
 repo=$(new_repo bare-dimension-opens-own-block)
+cat >"$repo/svc.py" <<'PYTHON'
+payload = {
+    "Dimensions": [
+    ],
+}
+PYTHON
 start_change "$repo"
 cat >"$repo/svc.py" <<'PYTHON'
 # metric-budget: 1 fleet series, paged on by RecorderDepthStall
@@ -219,10 +225,12 @@ pad_b = 2
 pad_c = 3
 pad_d = 4
 payload = {
-    "Dimensions": [{"Name": "deploy_sha", "Value": sha}],
+    "Dimensions": [
+        {"Name": "deploy_sha", "Value": sha},
+    ],
 }
 PYTHON
-expect_fail "$repo" 'svc.py:8  adds a non-empty Dimensions list'
+expect_fail "$repo" 'svc.py:9  adds a metric dimension entry'
 
 # A realistic dimensioned boto3 datum: the call and dimensions are eight lines apart once the
 # API-required Value and ordinary Unit/Timestamp fields are present. Their shared publication,
