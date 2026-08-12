@@ -42,11 +42,67 @@ PATTERNS = (
     # --parameter-overrides Name=Stack,Value=foo` and on Prometheus label strings.
     (CLI_DIMENSION, "adds an AWS CLI metric dimension"),
 )
+DIMENSIONS_START = re.compile(r'["\']Dimensions["\']\s*:\s*\[')
 DIMENSION_NAME = re.compile(r'["\']Name["\']\s*:')
 DIMENSION_VALUE = re.compile(r'["\']Value["\']\s*:')
 ACK = re.compile(r"metric-budget:\s*\S", re.IGNORECASE)
 ACK_RADIUS = 3
-DIMENSION_WINDOW = 5
+CLI_DIMENSION_WINDOW = 5
+
+
+def matching_delimiter(source: str, start: int, opening: str, closing: str) -> int | None:
+    """Return the matching delimiter, ignoring delimiters inside quoted strings."""
+    depth = 0
+    quote: str | None = None
+    escaped = False
+    for index in range(start, len(source)):
+        char = source[index]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in "\"'":
+            quote = char
+        elif char == opening:
+            depth += 1
+        elif char == closing:
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def is_dimension_entry(path: str, lineno: int) -> bool:
+    """Whether the named source line belongs to a Name/Value object in Dimensions."""
+    try:
+        source = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+
+    line_start = sum(len(line) for line in source.splitlines(keepends=True)[: lineno - 1])
+    line_end = source.find("\n", line_start)
+    if line_end == -1:
+        line_end = len(source)
+
+    for dimensions in DIMENSIONS_START.finditer(source):
+        array_start = source.find("[", dimensions.start(), dimensions.end())
+        array_end = matching_delimiter(source, array_start, "[", "]")
+        if array_end is None or not array_start < line_end or line_start > array_end:
+            continue
+        object_start = source.rfind("{", array_start + 1, line_end)
+        if object_start == -1:
+            continue
+        object_end = matching_delimiter(source, object_start, "{", "}")
+        if object_end is None or object_end > array_end or line_start > object_end:
+            continue
+        entry = source[object_start : object_end + 1]
+        if DIMENSION_NAME.search(entry) and DIMENSION_VALUE.search(entry):
+            return True
+    return False
 
 
 def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -135,7 +191,8 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
 
             if not DIMENSION_NAME.search(line):
                 candidate = "\n".join(
-                    added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
+                    added_line
+                    for _, added_line in hunk_added[index : index + CLI_DIMENSION_WINDOW]
                 )
                 if (
                     "dimensions" in line.lower()
@@ -157,10 +214,7 @@ def scan(diff: str) -> list[tuple[str, int, str, str]]:
                         )
                     )
                 continue
-            candidate = "\n".join(
-                added_line for _, added_line in hunk_added[index : index + DIMENSION_WINDOW]
-            )
-            if DIMENSION_VALUE.search(candidate):
+            if is_dimension_entry(path, lineno):
                 if active_publication is None:
                     next_block += 1
                     dimension_block = next_block

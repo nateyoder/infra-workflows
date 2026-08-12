@@ -86,6 +86,8 @@ CASES = [
      'CLI_DIMENSION = re.compile(r"(?!x)x")'),
 
     # Scanner behaviour that is not a detector alternative.
+    ("dimension structural scope", "scanner", METRIC_SUITE, SCANNER,
+     "if is_dimension_entry(path, lineno):", "if True:"),
     ("dimension Name half", "scanner", METRIC_SUITE, SCANNER,
      r"""DIMENSION_NAME = re.compile(r'["\']Name["\']\s*:')""",
      'DIMENSION_NAME = re.compile(r"(?!x)x")'),

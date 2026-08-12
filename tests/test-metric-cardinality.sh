@@ -106,14 +106,14 @@ esac
 repo=$(new_repo single-line-dimension)
 start_change "$repo"
 cat >"$repo/svc.py" <<'PYTHON'
-dimensions = [{"Name": "Producer", "Value": producer_id}]
+payload = {"Dimensions": [{"Name": "Producer", "Value": producer_id}]}
 PYTHON
 expect_fail "$repo" 'svc.py:1  adds a metric dimension entry'
 
 repo=$(new_repo acknowledged-added-line)
 start_change "$repo"
 cat >"$repo/svc.py" <<'PYTHON'
-dimensions = [{"Name": "Producer", "Value": producer_id}]  # metric-budget: 74 fleet series
+payload = {"Dimensions": [{"Name": "Producer", "Value": producer_id}]}  # metric-budget: 74 fleet series
 PYTHON
 expect_pass "$repo"
 
@@ -133,22 +133,37 @@ start_change "$repo"
 expect_pass "$repo"
 
 repo=$(new_repo multiline-dimension)
-cat >"$repo/svc.py" <<'PYTHON'
-def dimensions():
-    return [
-    ]
-PYTHON
 start_change "$repo"
 cat >"$repo/svc.py" <<'PYTHON'
-def dimensions():
-    return [
+payload = {
+    "Dimensions": [
         {
             "Name": "DeploySha",
             "Value": os.environ["DEPLOY_SHA"],
         },
-    ]
+    ],
+}
 PYTHON
 expect_fail "$repo" 'svc.py:4  adds a metric dimension entry'
+
+repo=$(new_repo unrelated-name-value-json)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+printf('%s\n', '"State":{"Name":"running"},"Tags":[')
+printf('%s\n', '{"Key":"Environment","Value":"canary"},')
+PYTHON
+expect_pass "$repo"
+
+repo=$(new_repo unrelated-name-value-near-metric)
+start_change "$repo"
+cat >"$repo/svc.py" <<'PYTHON'
+cw.put_metric_data(Namespace="Recorder")  # metric-budget: one fleet series
+response = {
+    "State": {"Name": "running"},
+    "Tags": [{"Key": "Environment", "Value": "canary"}],
+}
+PYTHON
+expect_pass "$repo"
 
 # Each source isolates one PATTERNS alternative so removing that alternative makes its case pass.
 while IFS='|' read -r name source expected; do
@@ -195,6 +210,12 @@ expect_fail "$repo" 'svc.py:7  publishes a metric directly'
 # An acknowledged non-publication finding must not clear a later bare dimension entry. Without
 # its own block, the deploy-SHA dimension would inherit the acknowledgement beyond ACK_RADIUS.
 repo=$(new_repo bare-dimension-opens-own-block)
+cat >"$repo/svc.py" <<'PYTHON'
+payload = {
+    "Dimensions": [
+    ],
+}
+PYTHON
 start_change "$repo"
 cat >"$repo/svc.py" <<'PYTHON'
 # metric-budget: 1 fleet series, paged on by RecorderDepthStall
@@ -203,11 +224,13 @@ pad_a = 1
 pad_b = 2
 pad_c = 3
 pad_d = 4
-EXTRA_DIMS = [
-    {"Name": "deploy_sha", "Value": sha},
-]
+payload = {
+    "Dimensions": [
+        {"Name": "deploy_sha", "Value": sha},
+    ],
+}
 PYTHON
-expect_fail "$repo" 'svc.py:8  adds a metric dimension entry'
+expect_fail "$repo" 'svc.py:9  adds a metric dimension entry'
 
 # A realistic dimensioned boto3 datum: the call and dimensions are eight lines apart once the
 # API-required Value and ordinary Unit/Timestamp fields are present. Their shared publication,
